@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Skyline: Aviation Empire — Web MVP</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+<script>
+// If any script fails, show the error instead of a blank page.
+window.addEventListener("error",function(e){
+  var b=document.getElementById("bootErr");
+  if(!b){b=document.createElement("div");b.id="bootErr";
+    b.style.cssText="background:#7f1d1d;color:#fff;padding:10px 14px;font:14px sans-serif;position:sticky;top:0;z-index:99";
+    document.body.prepend(b);}
+  b.textContent="Startup error: "+(e.message||"script failed")+" — press F12 for console, or hard-refresh (Ctrl+F5).";
+});
+</script>
+<header class="topbar">
+  <div class="brand">✈️ SKYLINE <span class="sub">Aviation Empire · MVP</span></div>
+  <div class="hud" id="hud"></div>
+  <div class="clock"><button id="btnDay" title="Advance 1 game-day">▶ +1 Day</button><button id="btnAuto">⏸ Auto</button><span id="tickInfo"></span></div>
+</header>
+<div id="setup" class="setup hidden">
+  <div class="card setupCard">
+    <h1>Build the airline you've always wanted to run.</h1>
+    <p class="muted">Start tiny → regional → global empire. 5-minute sessions, offline progression.</p>
+    <label>Airline name <input id="inName" value="Skyline Air" maxlength="24"></label>
+    <label>Code <input id="inCode" value="SKY" maxlength="3"></label>
+    <label>Home airport <select id="inHome"></select></label>
+    <label>Strategy <select id="inArch"><option>Balanced</option><option>Low-Cost</option><option>Premium</option><option>Regional</option></select></label>
+    <button id="btnStart" class="primary">Found airline · $5M + 2 leased jets</button>
+    <p class="tiny">MVP: local save in browser. Later: same sim on server for web + mobile.</p>
+  </div>
+</div>
+<div id="away" class="modal hidden"><div class="card"><h2>While you were away…</h2><div id="awayBody"></div><button class="primary" onclick="document.getElementById('away').classList.add('hidden')">Collect</button></div></div>
+<main id="main" class="hidden">
+<nav class="tabs" id="tabs">
+ <button data-t="dash" class="on">Dashboard</button><button data-t="map">Map</button><button data-t="fleet">Fleet</button><button data-t="routes">Routes</button><button data-t="fin">Finance</button><button data-t="mis">Missions</button><button data-t="board">Ranks</button><button id="btnReset" title="reset save">↺</button>
+</nav>
+<section id="view"></section>
+<footer class="credits tiny">Airports: <a href="https://ourairports.com/data/" target="_blank" rel="noopener">OurAirports</a> (public domain) · Map: © <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors · Imagery: Esri. <a href="https://ourairports.com/big-map.html" target="_blank" rel="noopener">The Big Map</a></footer>
+</main>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/data.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/game.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
