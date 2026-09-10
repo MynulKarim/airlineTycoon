@@ -16,6 +16,13 @@ No build step. Just open in a browser.
 ## What's simulated (per GDD §42)
 Base demand, elasticity, logit market share vs 4 AI personalities, fare/freq/rep effects, fuel random-walk + events, wear/maint, XP/levels, bankruptcy protection, offline catch-up (45s=1 day away, cap 40d, degraded after 7d) with "While you were away…" report.
 
+## Feel features
+- Living map: your flights animate at true relative cruise speeds (click a plane for LF/profit + aircraft/speed), day/night shade from real UTC time, airport popups link to OurAirports + plan From/To. Rivals stay off the map — you'll hear from them instead.
+- Skyline Gazette: front page on the dashboard (offline headlines, best/worst day, fuel/rep deltas). Fold it away to a stylish cover ("The Skyline Gazette" — tap to unfold); unfolds automatically with fresh news after time away.
+- AI CEOs with faces/quotes: Maya Chen (SwiftGo), Lord Ashworth (Royal Meridian), Dolly Ray (Magnolia), Omar Haddad (Titan) — taunts on entry, praise when you dominate, leaderboard bios.
+- Sound (WebAudio, no files): cash chime on profitable days, fanfare on level-up, alarm + red screen flash on default/bankruptcy. Mute button in the top bar (persisted).
+- Sparklines: per-route daily-profit trend in Routes table + dashboard.
+
 ## Map + airports (OurAirports)
 - Positions/names/codes/elevations: [OurAirports](https://ourairports.com/data/) public-domain data (`airports.csv` via https://davidmegginson.github.io/ourairports-data/airports.csv). Each airport stores its OurAirports `ident` and links to its page (`ourairports.com/airports/{ident}/`).
 - Map: [Leaflet](https://leafletjs.com) with OpenStreetMap + Esri World Imagery base layers and layer/scale controls — the same stack as [The Big Map](https://ourairports.com/big-map.html) (`oamap.js`: `L.tileLayer` OSM/Esri, airport marker layers, popups). Markers sized by tier; popups show ICAO/IATA, elev, tier + Set-From/Set-To planning.

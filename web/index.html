@@ -21,7 +21,7 @@ window.addEventListener("error",function(e){
 <header class="topbar">
   <div class="brand">✈️ SKYLINE <span class="sub">Aviation Empire · MVP</span></div>
   <div class="hud" id="hud"></div>
-  <div class="clock"><button id="btnDay" title="Advance 1 game-day">▶ +1 Day</button><button id="btnAuto">⏸ Auto</button><span id="tickInfo"></span></div>
+  <div class="clock"><button id="btnDay" title="Advance 1 game-day">▶ +1 Day</button><button id="btnAuto">⏸ Auto</button><button id="btnMute" title="Toggle sound">🔊</button><span id="tickInfo"></span></div>
 </header>
 <div id="setup" class="setup hidden">
   <div class="card setupCard">
@@ -35,7 +35,7 @@ window.addEventListener("error",function(e){
     <p class="tiny">MVP: local save in browser. Later: same sim on server for web + mobile.</p>
   </div>
 </div>
-<div id="away" class="modal hidden"><div class="card"><h2>While you were away…</h2><div id="awayBody"></div><button class="primary" onclick="document.getElementById('away').classList.add('hidden')">Collect</button></div></div>
+
 <main id="main" class="hidden">
 <nav class="tabs" id="tabs">
  <button data-t="dash" class="on">Dashboard</button><button data-t="map">Map</button><button data-t="fleet">Fleet</button><button data-t="routes">Routes</button><button data-t="fin">Finance</button><button data-t="mis">Missions</button><button data-t="board">Ranks</button><button id="btnReset" title="reset save">↺</button>

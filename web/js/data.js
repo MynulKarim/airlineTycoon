@@ -128,10 +128,10 @@ function derive(n){
   const belly=Math.round(mtow*0.08*10)/10;
   let d;
   if(k==="tp")d={speed:500,fuel:Math.round(seatsRaw*8.5+80),runway:1150+Math.round(mtow*8),turn:20+Math.round(seatsRaw/6),comfort:3,cargo:belly,seats:seatsRaw};
-  else if(k==="rj")d={speed:800,fuel:Math.round(seatsRaw*12+60),runway:1500+Math.round(mtow*6),turn:25+Math.round(seatsRaw/6),comfort:5,cargo:belly,seats:seatsRaw};
-  else if(k==="nb")d={speed:830,fuel:Math.round(seatsRaw*14),runway:1800+Math.round(mtow*5),turn:30+Math.round(seatsRaw/7),comfort:6,cargo:belly,seats:seatsRaw};
-  else if(k==="wb")d={speed:880,fuel:Math.round(seatsRaw*17+mtow*2),runway:2400+Math.round(mtow*2.5),turn:55+Math.round(seatsRaw/12),comfort:8,cargo:belly,seats:seatsRaw};
-  else if(k==="fr")d={speed:820,fuel:Math.round(mtow*22+200),runway:mtow>150?2400+Math.round(mtow*2):1700+Math.round(mtow*6),turn:40+Math.round(mtow/8),comfort:1,cargo:Math.round(mtow*0.55*10)/10,seats:0};
+  else if(k==="rj")d={speed:820,fuel:Math.round(seatsRaw*12+60),runway:1500+Math.round(mtow*6),turn:25+Math.round(seatsRaw/6),comfort:5,cargo:belly,seats:seatsRaw};
+  else if(k==="nb")d={speed:840,fuel:Math.round(seatsRaw*14),runway:1800+Math.round(mtow*5),turn:30+Math.round(seatsRaw/7),comfort:6,cargo:belly,seats:seatsRaw};
+  else if(k==="wb")d={speed:900,fuel:Math.round(seatsRaw*17+mtow*2),runway:2400+Math.round(mtow*2.5),turn:55+Math.round(seatsRaw/12),comfort:8,cargo:belly,seats:seatsRaw};
+  else if(k==="fr")d={speed:890,fuel:Math.round(mtow*22+200),runway:mtow>150?2400+Math.round(mtow*2):1700+Math.round(mtow*6),turn:40+Math.round(mtow/8),comfort:1,cargo:Math.round(mtow*0.55*10)/10,seats:0};
   else d={speed:850,fuel:Math.round(seatsRaw*45+150),runway:1200+Math.round(mtow*40),turn:15+seatsRaw,comfort:9,cargo:0.5,seats:seatsRaw};
   return {id,name,mfr,cls,kind:k,type,seatsRaw,priceM,...P,...d,
     desc:`${type} · ${k==="fr"?d.cargo+"t cargo":seatsRaw+" seats"} · ${P.range}km · MTOW ${mtow}t`};

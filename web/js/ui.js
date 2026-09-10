@@ -1,9 +1,33 @@
 // Skyline UI controller
 (function(){
 const G=window.SKY_GAME,D=window.SKY_DATA;
-let tab="dash",auto=true,timer=null,routeDraft={from:"DAC",to:"DXB",freq:2,fareY:299},skyMap=null;
+let tab="dash",auto=true,timer=null,routeDraft={from:"DAC",to:"DXB",freq:2,fareY:299},skyMap=null,skyFx=[];
 window.SKY_UI={setFrom(id){routeDraft.from=id;tab="routes";document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on",x.dataset.t==="routes"));render();},
  setTo(id){routeDraft.to=id;tab="routes";document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on",x.dataset.t==="routes"));render();}};
+// --- SFX: tiny synthesized WebAudio sounds, no assets ---
+const SFX=(()=>{let ctx=null,muted=false;
+ try{muted=localStorage.getItem("skyline_mute")==="1";}catch(e){}
+ function ac(){if(!ctx)ctx=new (window.AudioContext||window.webkitAudioContext)();if(ctx.state==="suspended")ctx.resume();return ctx;}
+ function tone(f,t0,dur,type,vol){const c=ac(),o=c.createOscillator(),g=c.createGain();o.type=type||"sine";o.frequency.value=f;g.gain.setValueAtTime(vol||0.12,t0);g.gain.exponentialRampToValueAtTime(0.001,t0+dur);o.connect(g);g.connect(c.destination);o.start(t0);o.stop(t0+dur+0.02);}
+ function seq(notes,type,vol,step){if(muted)return;try{const c=ac(),t=c.currentTime;notes.forEach((f,i)=>tone(f,t+i*(step||0.09),0.14,type||"sine",vol||0.1));}catch(e){}}
+ return{cash(){seq([880,1174,1568],"square",0.05);},chime(){seq([660,990],"sine",0.1);},
+  fanfare(){seq([523,659,784,1046,1318],"triangle",0.12,0.11);},alertS(){seq([196,147],"sawtooth",0.12,0.18);},
+  isMuted:()=>muted,toggle(){muted=!muted;try{localStorage.setItem("skyline_mute",muted?"1":"0");}catch(e){}return muted;}};
+})();
+function flashRed(){const b=document.body;b.classList.remove("flash-red");void b.offsetWidth;b.classList.add("flash-red");setTimeout(()=>b.classList.remove("flash-red"),800);}
+// Advance one game-day with sound + juice. Returns the day result.
+function advanceDay(manual){
+  const s=G.S();if(!s)return null;
+  const L0=s.level;
+  const d=G.simulateDay();render();
+  const s2=G.S();
+  if(s2.level>L0){SFX.fanfare();flash("Level "+s2.level+"! New routes + credit unlocked.");}
+  else if(manual&&d.profit>0){SFX.cash();}
+  const latest=s2.advisor[0]||"";
+  if(/DEFAULT|Bankruptcy/.test(latest)){SFX.alertS();flashRed();}
+  if(manual)flash((d.profit>=0?"+":"")+G.fmt$(d.profit)+" · "+d.pax+" pax");
+  return d;
+}
 function $ (s){return document.querySelector(s);}
 function esc(s){return String(s).replace(/[<>"]/g,c=>({"<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 function init(){
@@ -11,22 +35,58 @@ function init(){
   homeSel.innerHTML=D.airports.map(a=>`<option value="${a.id}">${a.iata||a.id} — ${esc(a.city)}, ${esc(a.country)} · ${esc(a.name)} (tier ${a.tier})</option>`).join("");
   homeSel.value="DAC";
   const saved=G.load();
-  if(saved&&saved.name){enter();const away=G.catchUp();if(away)showAway(away);}
+  if(saved&&saved.name){enter();if(G.catchUp()){const st=G.S();st.gazetteClosed=false;G.save();render();}}
   else{$("#setup").classList.remove("hidden");}
   $("#btnStart").onclick=()=>{G.newAirline($("#inName").value||"Skyline Air",$("#inCode").value||"SKY",homeSel.value,$("#inArch").value);enter();};
   document.querySelectorAll("#tabs button[data-t]").forEach(b=>b.onclick=()=>{tab=b.dataset.t;document.querySelectorAll("#tabs button").forEach(x=>x.classList.remove("on"));b.classList.add("on");render();});
-  $("#btnDay").onclick=()=>{const d=G.simulateDay();render();flash((d.profit>=0?"+":"")+G.fmt$(d.profit)+" · "+d.pax+" pax");};
+  $("#btnDay").onclick=()=>advanceDay(true);
   $("#btnAuto").onclick=e=>{auto=!auto;e.target.textContent=auto?"⏸ Auto":"▶ Auto";loop();};
+  const bm=$("#btnMute");if(bm){bm.textContent=SFX.isMuted()?"🔇":"🔊";bm.onclick=()=>{bm.textContent=SFX.toggle()?"🔇":"🔊";};}
   $("#btnReset").onclick=()=>{if(confirm("Reset airline?")){G.reset();location.reload();}};
   loop();
 }
 function enter(){$("#setup").classList.add("hidden");$("#main").classList.remove("hidden");render();}
-function loop(){clearInterval(timer);if(auto)timer=setInterval(()=>{try{if(!G.S())return;G.simulateDay();render();}catch(err){console.error(err);}},G.DAY_MS);}
+function loop(){clearInterval(timer);if(auto)timer=setInterval(()=>{try{if(!G.S())return;advanceDay(false);}catch(err){console.error(err);}},G.DAY_MS);}
 function flash(msg){$("#tickInfo").textContent=msg;setTimeout(()=>$("#tickInfo").textContent="",3000);}
-function showAway(a){$("#away").classList.remove("hidden");
-  $("#awayBody").innerHTML=`<p>🛫 <b>${a.flights}</b> flights · 🧍 <b>${a.pax.toLocaleString()}</b> pax</p>
-  <p>Revenue <b>${G.fmt$(a.rev)}</b> · Profit <b class="${a.profit>=0?'profit':'loss'}">${G.fmt$(a.profit)}</b> over ${a.days} day(s)</p>
-  <p class="muted">After 7 days away, earnings degrade — come back daily!</p>`;}
+// --- Skyline Gazette: front page lives on the dashboard ---
+function gazetteData(s){
+  if(s.awayReport&&s.awayReport.days>0)return{...s.awayReport};
+  const h=s.history.slice(-7);
+  const sum=k=>h.reduce((x,y)=>x+(y[k]||0),0);
+  let best=null,worst=null;
+  h.forEach(y=>{if(!best||y.profit>best.profit)best={profit:y.profit,day:y.day};if(!worst||y.profit<worst.profit)worst={profit:y.profit,day:y.day};});
+  return{days:h.length,flights:sum("flights"),pax:sum("pax"),rev:sum("rev"),profit:sum("profit"),
+    fuel0:s.fuel,fuel1:s.fuel,rep0:s.rep,rep1:s.rep,
+    best:best||{profit:0,day:"—"},worst:worst||{profit:0,day:"—"},
+    headlines:s.advisor.slice(0,8),live:true};
+}
+function paperBody(a){
+  const H=(a.headlines||[]);
+  return `<div class="masthead">📰 THE SKYLINE GAZETTE</div>
+  <div class="tiny" style="text-align:center;opacity:.7">Day ${G.S().day} · ${a.live?("last "+a.days+" day(s) · live edition"):(a.days+" day(s) away")} · all times local-ish</div>
+  ${H.length?H.map(h=>`<div class="headline">${esc(h)}</div>`).join(""):'<div class="headline">🕊️ Quiet days in the sky — your crews kept the schedule without incident.</div>'}
+  <div class="papergrid">
+   <div>🛫 <b>${a.flights}</b> flights</div><div>🧍 <b>${a.pax.toLocaleString()}</b> pax</div>
+   <div>💰 Revenue <b>${G.fmt$(a.rev)}</b></div><div>${a.profit>=0?"📈":"📉"} Profit <b>${G.fmt$(a.profit)}</b></div>
+   <div>🏆 Best: Day ${a.best?a.best.day:"—"} (${G.fmt$(a.best?a.best.profit:0)})</div><div>🌧️ Worst: Day ${a.worst?a.worst.day:"—"} (${G.fmt$(a.worst?a.worst.profit:0)})</div>
+   <div>⛽ Fuel $${(a.fuel0||0).toFixed(2)} → $${(a.fuel1||0).toFixed(2)}</div><div>😊 Rep ${Math.round(a.rep0||0)} → ${Math.round(a.rep1||0)}</div>
+  </div><p class="tiny" style="opacity:.7">After 7 days away, earnings degrade — come back daily!</p>`;
+}
+function gazetteSeg(s){
+  // Folded: just the cover. Unfolded: the full front page.
+  if(s.gazetteClosed){const a=gazetteData(s);
+    return `<div class="gazcover" data-gazopen role="button" title="Unfold the Gazette"><div class="coverline">EST. DAY 1 · PRICE: ONE GOOD LANDING</div><div class="covername">The Skyline Gazette</div><div class="coverline">Day ${s.day} morning edition · ${a.days} day(s) of news inside</div><span class="opentag">Tap to unfold 📰</span></div>`;}
+  return `<div class="paper"><div class="row" style="justify-content:flex-end"><button data-gazclose title="Fold the paper away">Fold ✕</button></div>${paperBody(gazetteData(s))}</div>`;
+}
+function spark(hist,key){
+  if(!hist||hist.length<2)return '<span class="muted">—</span>';
+  const vals=hist.map(h=>h[key]||0);
+  const mn=Math.min(...vals,0),mx=Math.max(...vals,0),rg=(mx-mn)||1,W=90,H=28;
+  const pts=vals.map((v,i)=>`${(i/(vals.length-1)*W).toFixed(1)},${(H-2-((v-mn)/rg)*(H-4)).toFixed(1)}`).join(" ");
+  const col=vals[vals.length-1]>=vals[0]?"#4ade80":"#f87171";
+  const zy=(H-2-((0-mn)/rg)*(H-4)).toFixed(1);
+  return `<svg class="spark" width="${W}" height="${H}"><line x1="0" y1="${zy}" x2="${W}" y2="${zy}" stroke="#a89f8d" stroke-width="1"/><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="2"/></svg>`;
+}
 function hud(){const s=G.S();if(!s)return;$("#hud").innerHTML=
  `<span class="pill">💰 <b>${G.fmt$(s.cash)}</b></span><span class="pill">⭐ Lvl ${s.level} ${esc(s.name)} (${esc(s.code)})</span>
   <span class="pill">😊 Rep ${Math.round(s.rep)}</span><span class="pill">📅 Day ${s.day}</span>
@@ -35,9 +95,9 @@ function hud(){const s=G.S();if(!s)return;$("#hud").innerHTML=
 function render(){hud();const s=G.S();if(!s)return;const v=$("#view");
   // Tear down the Leaflet map before its container is replaced (else its
   // async code throws after the div is gone).
-  if(tab!=="map"&&skyMap){try{skyMap.remove();}catch(e){}skyMap=null;}
+  if(tab!=="map"){stopFlights();if(skyMap){try{skyMap.remove();}catch(e){}skyMap=null;}}
   if(tab==="dash")v.innerHTML=dash(s);
-  if(tab==="map")v.innerHTML=`<div class="card"><h3>World network — OurAirports Big-Map style</h3><div id="map"></div><p class="muted">Home ${s.home} · <span style="color:#38bdf8">—blue—</span> your routes · <span style="color:#f87171">- -red- -</span> AI · click an airport for codes, OurAirports page + From/To planning</p><p class="tiny">Airport positions: <a href="https://ourairports.com/data/" target="_blank" rel="noopener">OurAirports</a> (public domain) · tiles: © OpenStreetMap contributors, Esri World Imagery — same base layers as <a href="https://ourairports.com/big-map.html" target="_blank" rel="noopener">The Big Map</a></p></div>`+dash(s),drawMap();
+  if(tab==="map")v.innerHTML=`<div class="card"><h3>Your live network</h3><div id="map"></div><p class="muted">Home ${s.home} · <span style="color:#38bdf8">—blue—</span> your routes · ✈️ your flights in real relative speed (click one) · shaded half is night right now</p><p class="tiny">Airport positions: <a href="https://ourairports.com/data/" target="_blank" rel="noopener">OurAirports</a> (public domain) · tiles: © OpenStreetMap contributors, Esri World Imagery — same base layers as <a href="https://ourairports.com/big-map.html" target="_blank" rel="noopener">The Big Map</a></p></div>`+dash(s),drawMap();
   if(tab==="fleet")v.innerHTML=fleetV(s);
   if(tab==="routes")v.innerHTML=routesV(s);
   if(tab==="fin")v.innerHTML=finV(s);
@@ -48,13 +108,13 @@ function render(){hud();const s=G.S();if(!s)return;const v=$("#view");
 function dash(s){
   const last=[...s.history].slice(-1)[0]||{rev:0,profit:0,pax:0};
   const tips=G.advisorTips();
-  return `<div class="grid g3">
+  return `<div style="margin-bottom:12px">${gazetteSeg(s)}</div><div class="grid g3">
    <div class="card"><div class="muted">Cash</div><div class="kpi">${G.fmt$(s.cash)}</div><div class="muted">Today ${last.profit>=0?'<span class="profit">': '<span class="loss">'}${G.fmt$(last.profit)}</span> · ${G.fmtN(last.pax)} pax</div></div>
    <div class="card"><div class="muted">Airline</div><div class="kpi">Lvl ${s.level}</div><div class="bar"><i style="width:${Math.min(100,s.xp/(100*Math.pow(s.level,1.6))*100)}%"></i></div><div class="muted">${Math.round(s.xp)}/${Math.round(100*Math.pow(s.level,1.6))} XP · Rep ${Math.round(s.rep)} · ${s.arch}</div></div>
    <div class="card"><div class="muted">All-time</div><div class="kpi">${G.fmtN(s.stats.pax)} pax</div><div class="muted">${G.fmtN(s.stats.flights)} flights · ${G.fmt$(s.stats.profit)} profit</div></div></div>
   <div class="grid g2" style="margin-top:12px">
    <div class="card"><h3>🧑‍✈️ Advisor (CFO/CCO)</h3>${tips.length?tips.map(t=>`<div class="alert">${esc(t)}</div>`).join(""):'<p class="muted">All good. Expand or optimize a fare.</p>'}${s.advisor.slice(0,4).map(a=>`<div class="alert">${esc(a)}</div>`).join("")}</div>
-   <div class="card"><h3>Top routes</h3>${s.routes.length?s.routes.map(r=>`<div>✈️ ${r.from}–${r.to} · LF ${Math.round((r.lf7||0)*100)}% · <span class="${(r.profit7||0)>=0?'profit':'loss'}">${G.fmt$((r.profit7||0)/7)}/d</span></div>`).join(""):'<p class="muted">No routes yet — open one in Routes tab. Try DAC → DXB with an R-109.</p>'}</div></div>`;
+   <div class="card"><h3>Top routes</h3>${s.routes.length?s.routes.map(r=>`<div>✈️ ${r.from}–${r.to} · LF ${Math.round((r.lf7||0)*100)}% · <span class="${(r.profit7||0)>=0?'profit':'loss'}">${G.fmt$((r.profit7||0)/7)}/d</span> ${spark(r.hist,"profit")}</div>`).join(""):'<p class="muted">No routes yet — open one in Routes tab. Try DAC → DXB with an R-109.</p>'}</div></div>`;
 }
 function fleetV(s){
   const idle=s.fleet.filter(a=>!s.routes.some(r=>r.aircraftId===a.id&&r.status==="ACTIVE"));
@@ -76,8 +136,8 @@ function routesV(s){
    Fare Y $<input id="rFare" type="number" value="${routeDraft.fareY}" style="width:90px"></div>
    <div class="row" style="margin-top:8px"><button id="doPreview">Preview</button><button id="doOpt">✨ Optimize fare</button><button id="doOpen" class="primary">Launch route</button></div>
    <div id="pv" style="margin-top:8px">${pv.err?`<span class="loss">${esc(pv.err)}</span>`:pv.isCargo?`Dist ${pv.dist}km · Freighter · Cargo <b>${pv.cargoT}t</b> · Profit <b class="${pv.profit>=0?'profit':'loss'}">${G.fmt$(pv.profit)}/day</b>`: `Dist ${pv.dist}km · Mkt $${pv.mFare} · Share ${Math.round(pv.myShare*100)}% vs ${pv.rivals} AI · Pax <b>${pv.pax}</b> · LF <b>${Math.round(pv.lf*100)}%</b> · Profit <b class="${pv.profit>=0?'profit':'loss'}">${G.fmt$(pv.profit)}/day</b>`}</div></div>
-  <div class="card"><h3>Your routes</h3><table><tr><th>Route</th><th>Freq/Fare</th><th>LF 7d</th><th>Profit/d</th><th></th></tr>
-  ${s.routes.map(r=>`<tr><td><b>${r.from}–${r.to}</b> <span class="muted">${(G.model((s.fleet.find(a=>a.id===r.aircraftId)||{}).modelId)||{name:r.status==="REVIEW"?"— aircraft sold —":"?" }).name}</span></td><td>${r.freq}× · $${r.fareY}</td><td>${Math.round((r.lf7||0)*100)}%</td><td class="${(r.profit7||0)>=0?'profit':'loss'}">${G.fmt$((r.profit7||0)/7)}</td><td><button data-susp="${r.id}">${r.status==="ACTIVE"?"Suspend":"Resume"}</button> <button data-close="${r.id}" class="danger">Close</button></td></tr>`).join("")||'<tr><td colspan="5" class="muted">None yet.</td></tr>'}</table></div>`;
+  <div class="card"><h3>Your routes</h3><table><tr><th>Route</th><th>Freq/Fare</th><th>LF 7d</th><th>Profit/d</th><th>Trend</th><th></th></tr>
+  ${s.routes.map(r=>`<tr><td><b>${r.from}–${r.to}</b> <span class="muted">${(G.model((s.fleet.find(a=>a.id===r.aircraftId)||{}).modelId)||{name:r.status==="REVIEW"?"— aircraft sold —":"?" }).name}</span></td><td>${r.freq}× · $${r.fareY}</td><td>${Math.round((r.lf7||0)*100)}%</td><td class="${(r.profit7||0)>=0?'profit':'loss'}">${G.fmt$((r.profit7||0)/7)}</td><td>${spark(r.hist,"profit")}</td><td><button data-susp="${r.id}">${r.status==="ACTIVE"?"Suspend":"Resume"}</button> <button data-close="${r.id}" class="danger">Close</button></td></tr>`).join("")||'<tr><td colspan="6" class="muted">None yet.</td></tr>'}</table></div>`;
 }
 function finV(s){
   const h=[...s.history].slice(-14).reverse();
@@ -109,7 +169,7 @@ function misV(s){
   <div class="card"><h3>Achievements</h3><div>🛫 First route: ${s.routes.length?"✅":"⬜"}</div><div>🧍 10K pax: ${s.stats.pax>=10000?"✅":"⬜"} (${G.fmtN(s.stats.pax)})</div><div>💰 $10M cash: ${s.cash>=10e6?"✅":"⬜"}</div><div>🌍 5 routes: ${s.routes.length>=5?"✅":"⬜"}</div><div>⭐ Level 5: ${s.level>=5?"✅":"⬜"}</div></div></div>`;
 }
 function boardV(s){
-  const rows=[{n:s.name+" (YOU · "+s.home+")",p:s.stats.profit,px:s.stats.pax,c:"#0ea5e9"},...s.ai.map(a=>({n:a.name+" · "+(a.base||"?"),p:a.profit+Math.round(Math.random()*20000)+s.day*800,px:a.pax+s.day*400,c:"#f87171"}))].sort((a,b)=>b.p-a.p);
+  const rows=[{n:"⭐ "+s.name+" (YOU · "+s.home+")",p:s.stats.profit,px:s.stats.pax,c:"#0ea5e9"},...s.ai.map(a=>({n:(a.face||"🛩")+" "+a.name+" ("+(a.ceo||"CEO")+" · "+(a.base||"?")+")",p:a.profit+Math.round(Math.random()*20000)+s.day*800,px:a.pax+s.day*400,c:"#f87171"}))].sort((a,b)=>b.p-a.p);
   return `<div class="card"><h3>Leaderboard — profit (you vs AI)</h3><table><tr><th>#</th><th>Airline</th><th>Score</th></tr>${rows.map((r,i)=>`<tr><td>${i+1}</td><td style="color:${r.c}">${esc(r.n)}</td><td>${G.fmt$(r.p)}</td></tr>`).join("")}</table><p class="muted">AI personalities: SwiftGo (LCC, SE Asia) undercuts · Royal Meridian (premium long-haul) holds high fare · Magnolia (US regional) nips thin routes · Titan (mega, Gulf) spams frequency. Enter their routes to steal share with better fare/frequency/rep.</p></div>`;
 }
 function drawMap(){
@@ -124,10 +184,7 @@ function drawMap(){
   L.control.layers({"Map":osm,"Satellite":sat}).addTo(skyMap);
   L.control.scale({position:"bottomleft"}).addTo(skyMap);
   const served=new Set();s.routes.filter(r=>r.status==="ACTIVE").forEach(r=>{served.add(r.from);served.add(r.to);});
-  // AI competition (faint red, like extra marker layers)
-  s.ai.forEach(ai=>ai.routes.forEach(r=>{const A=D.airports.find(a=>a.id===r.from),B=D.airports.find(a=>a.id===r.to);
-    if(A&&B)L.polyline([[A.lat,A.lon],[B.lat,B.lon]],{color:"#f87171",weight:1,opacity:.45,dashArray:"4 4"}).addTo(skyMap);}));
-  // player network (blue)
+  // player network (blue) — rival AI stays invisible on the map (intel via advisor)
   const pts=[];
   s.routes.filter(r=>r.status==="ACTIVE").forEach(r=>{const A=D.airports.find(a=>a.id===r.from),B=D.airports.find(a=>a.id===r.to);
     if(A&&B){L.polyline([[A.lat,A.lon],[B.lat,B.lon]],{color:"#0ea5e9",weight:3,opacity:.9}).addTo(skyMap);pts.push([A.lat,A.lon],[B.lat,B.lon]);}});
@@ -142,10 +199,61 @@ function drawMap(){
       `<button onclick="window.SKY_UI.setFrom('${a.id}')">Set From</button> <button onclick="window.SKY_UI.setTo('${a.id}')">Set To</button></div>`);
     if(isHome)m.bindTooltip("HOME "+a.id,{permanent:true,direction:"top"});
     m.addTo(skyMap);});
+  startFlights(s);
   if(pts.length)skyMap.fitBounds(pts,{padding:[30,30]});
   else{const h=D.airports.find(a=>a.id===s.home);skyMap.setView(h?[h.lat,h.lon]:[22,75],4);}
   setTimeout(()=>{try{skyMap&&skyMap.invalidateSize();}catch(e){}},60);
   }catch(err){el.innerHTML='<p class="muted">Map failed to start. Everything else still works.</p>';skyMap=null;}
+}
+// --- Living map: animated flights + day/night shade ---
+let nightLayer=null;
+function stopFlights(){skyFx.forEach(id=>{try{clearInterval(id);}catch(e){}});skyFx=[];}
+function startFlights(s){
+  // Player flights only. Crossing time is scaled from REAL cruise speed:
+  // 12 animation-seconds per real flight hour, so relative speeds are true
+  // (a 900 km/h widebody visibly outruns a 500 km/h turboprop).
+  stopFlights();
+  const SCALE=12, planes=[], SIM=window.SKY_SIM;
+  const addPlane=(A,B,popup,dist,speed)=>{
+    if(!A||!B)return;
+    const mk=L.marker([A.lat,A.lon],{icon:L.divIcon({className:"plane",html:"✈️",iconSize:[18,18],iconAnchor:[9,9]}),keyboard:false});
+    mk.bindPopup(popup);mk.addTo(skyMap);
+    const D=Math.max(5,(dist/Math.max(300,speed||800))*SCALE); // seconds, one-way
+    planes.push({mk,A,B,t:Math.random(),v:0.24/D*(Math.random()<0.5?-1:1)});
+  };
+  s.routes.filter(r=>r.status==="ACTIVE").forEach(r=>{
+    const A=D.airports.find(a=>a.id===r.from),B=D.airports.find(a=>a.id===r.to);
+    if(!A||!B)return;
+    const ac=(s.fleet||[]).find(a=>a.id===r.aircraftId);
+    const m=ac?G.model(ac.modelId):null;
+    const dist=SIM.havKm(A,B),speed=m?m.speed:800;
+    const info=m?`<br>${esc(m.name)} · ${m.speed} km/h cruise`:"";
+    const lastH=r.hist&&r.hist.length?r.hist[r.hist.length-1]:null;
+    const body=(m&&m.cls==="Cargo")
+      ?`🚚 <b>${r.from}–${r.to}</b><br>${lastH&&lastH.tons!=null?lastH.tons+"t last day":"no flights yet"} · <b>${G.fmt$((r.profit7||0)/7)}/day</b>${info}`
+      :`✈️ <b>${r.from}–${r.to}</b><br>LF ${Math.round((r.lf7||0)*100)}% · <b>${G.fmt$((r.profit7||0)/7)}/day</b>${info}`;
+    const n=Math.min(2,r.freq||1);
+    for(let i=0;i<n;i++)addPlane(A,B,body+`<br>${esc(s.name)}`,dist,speed);
+  });
+  skyFx.push(setInterval(()=>{planes.forEach(p=>{p.t+=p.v;if(p.t>1){p.t=1;p.v*=-1;}if(p.t<0){p.t=0;p.v*=-1;}
+    try{p.mk.setLatLng([p.A.lat+(p.B.lat-p.A.lat)*p.t,p.A.lon+(p.B.lon-p.A.lon)*p.t]);}catch(e){}});},240));
+  updateNight();
+  skyFx.push(setInterval(updateNight,60000));
+}
+function updateNight(){
+  if(!skyMap||typeof L==="undefined")return;
+  try{
+    const now=new Date(),utcH=now.getUTCHours()+now.getUTCMinutes()/60;
+    let nc=(((180-utcH*15+180)+180)%360+360)%360-180; // night-side center longitude
+    if(nightLayer){try{skyMap.removeLayer(nightLayer);}catch(e){}}
+    nightLayer=L.layerGroup();
+    const draw=(w,e)=>{if(e-w>0.01)L.rectangle([[72,w],[-55,e]],{stroke:false,fillColor:"#000",fillOpacity:0.28,interactive:false}).addTo(nightLayer);};
+    if(nc-90<-180){draw(nc-90+360,180);draw(-180,nc+90);}
+    else if(nc+90>180){draw(nc-90,180);draw(-180,nc+90-360);}
+    else draw(nc-90,nc+90);
+    nightLayer.addTo(skyMap);
+    try{nightLayer.bringToBack();}catch(e){}
+  }catch(e){}
 }
 function bind(v){
   const s=G.S();
@@ -168,6 +276,8 @@ function bind(v){
       const r=G.openRoute(routeDraft.from,routeDraft.to,acId,routeDraft.freq,routeDraft.fareY);if(r.err)alert(r.err);else{flash("Route launched! +1 Day to fly it.");tab="dash";document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on",x.dataset.t==="dash"));render();}};}
   v.querySelectorAll("[data-susp]").forEach(b=>b.onclick=()=>{const r=s.routes.find(x=>x.id===b.dataset.susp);r.status=r.status==="ACTIVE"?"SUSPENDED":"ACTIVE";G.save();render();});
   v.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>{s.routes=s.routes.filter(x=>x.id!==b.dataset.close);G.save();render();});
+  v.querySelectorAll("[data-gazclose]").forEach(b=>b.onclick=()=>{s.gazetteClosed=true;G.save();render();});
+  const go=v.querySelector("[data-gazopen]");if(go)go.onclick=()=>{s.gazetteClosed=false;G.save();render();};
 }
 window.addEventListener("DOMContentLoaded",init);
 })();
