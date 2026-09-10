@@ -60,23 +60,116 @@ function gazetteData(s){
     best:best||{profit:0,day:"—"},worst:worst||{profit:0,day:"—"},
     headlines:s.advisor.slice(0,8),live:true};
 }
-function paperBody(a){
+function leadStory(a,s){
+  const H=a.headlines||[];
+  const item=H.find(h=>/🚨/.test(h))||H.find(h=>/🛩/.test(h))||H.find(h=>/🏅/.test(h))||H.find(h=>/⭐/.test(h))||H.find(h=>/📣/.test(h))||null;
+  if(item){
+    const t=item.replace(/^Day \d+: /,"");
+    let head="SKIES BUSY OVER THE NETWORK";
+    if(/🚨/.test(item))head="DEFAULT SHOCK ROCKS THE SKIES";
+    else if(/🛩/.test(item)){const m=t.match(/onto (\S+)/);head=m?("RIVAL STORM ONTO "+m[1].replace(/[^A-Za-z–]/g,"").toUpperCase()):"RIVAL INVASION ROCKS NETWORK";}
+    else if(/🏅/.test(item))head=("MILESTONE: "+t.replace(/🏅 ?(Milestone: )?/,"").split(" (")[0]).toUpperCase().slice(0,44);
+    else if(/⭐/.test(item))head="CARRIER WINS COVETED RATING";
+    else if(/📣/.test(item))head=t.replace(/📣 /,"").split(" — ")[0].toUpperCase().slice(0,44);
+    return{item,head,body:t};
+  }
+  const r=(s.routes||[]).filter(x=>x.status==="ACTIVE").length;
+  return{item:null,head:(a.profit>=0?"PROFITS CLIMB OVER ":"RED INK OVER ")+(s.home||"THE NETWORK"),
+    body:`${s.name} operated ${a.flights} flights carrying ${(a.pax||0).toLocaleString()} passengers across ${r} active routes, for a ${a.profit>=0?"profit":"loss"} of ${G.fmt$(a.profit)}.`};
+}
+function paperBody(a,s){
   const H=(a.headlines||[]);
-  return `<div class="masthead">📰 THE SKYLINE GAZETTE</div>
-  <div class="tiny" style="text-align:center;opacity:.7">Day ${G.S().day} · ${a.live?("last "+a.days+" day(s) · live edition"):(a.days+" day(s) away")} · all times local-ish</div>
-  ${H.length?H.map(h=>`<div class="headline">${esc(h)}</div>`).join(""):'<div class="headline">🕊️ Quiet days in the sky — your crews kept the schedule without incident.</div>'}
-  <div class="papergrid">
-   <div>🛫 <b>${a.flights}</b> flights</div><div>🧍 <b>${a.pax.toLocaleString()}</b> pax</div>
-   <div>💰 Revenue <b>${G.fmt$(a.rev)}</b></div><div>${a.profit>=0?"📈":"📉"} Profit <b>${G.fmt$(a.profit)}</b></div>
-   <div>🏆 Best: Day ${a.best?a.best.day:"—"} (${G.fmt$(a.best?a.best.profit:0)})</div><div>🌧️ Worst: Day ${a.worst?a.worst.day:"—"} (${G.fmt$(a.worst?a.worst.profit:0)})</div>
-   <div>⛽ Fuel $${(a.fuel0||0).toFixed(2)} → $${(a.fuel1||0).toFixed(2)}</div><div>😊 Rep ${Math.round(a.rep0||0)} → ${Math.round(a.rep1||0)}</div>
-  </div><p class="tiny" style="opacity:.7">After 7 days away, earnings degrade — come back daily!</p>`;
+  const lead=leadStory(a,s);
+  const miles=H.filter(h=>h!==lead.item&&/🏅|⭐/.test(h)).slice(0,3);
+  const market=H.filter(h=>h!==lead.item&&/📣|⛽|💸/.test(h)).slice(0,3);
+  const rivals=H.filter(h=>h!==lead.item&&/🛩|🤝/.test(h)).slice(0,2);
+  const used=new Set([lead.item,...miles,...market,...rivals].filter(Boolean));
+  const rest=H.filter(h=>!used.has(h));
+  const homeAp=G.ap(s.home);
+  const activeR=(s.routes||[]).filter(x=>x.status==="ACTIVE").length;
+  const brief=t=>`<div class="brief">${esc(t.replace(/^Day \d+: /,""))}</div>`;
+  return `<div class="rule-double"></div>
+  <div class="nameplate"><div class="l1">THE SKYLINE</div><div class="l2">GAZETTE</div></div>
+  <div class="rule-orn"><span>◆</span><span class="dateline">DAY ${G.S().day} · ${a.live?("LAST "+a.days+" DAYS · LIVE EDITION"):(a.days+" DAYS · MORNING EDITION")}</span><span>◆</span></div>
+  <div class="leadhead">${esc(lead.head)}</div>
+  <div class="newscols">
+   <div><div class="colhead">The Fleet</div>
+    <p><b>${esc(s.name)}</b> now operates <b>${s.fleet.length}</b> aircraft across <b>${activeR}</b> routes from ${esc(homeAp?homeAp.city+" ("+s.home+")":s.home)}, a Level <b>${s.level}</b> carrier with <b>${G.fmt$(s.cash)}</b> in the till and reputation at <b>${Math.round(s.rep)}</b>.</p>
+    ${miles.length?'<div class="colhead">Honours</div>'+miles.map(brief).join(""):""}
+    <div class="colhead">Sustainable Fuel</div>
+    <p>Carriers partner with energy firms to develop greener alternatives for commercial flights as fuel trades at <b>$${(a.fuel1||0).toFixed(2)}</b>.</p>
+   </div>
+   <div><div class="colhead">Lead Story</div>
+    <svg viewBox="0 0 320 130" class="newsphoto" role="img" aria-label="Airliner illustration"><rect x="0" y="0" width="320" height="130" fill="#d8d2c4"/><g fill="#3a3a3a"><path d="M18 80 Q60 68 120 63 L248 59 Q290 59 300 70 Q291 81 250 81 L120 85 Q60 89 18 83 Z"/><path d="M38 78 L66 28 L84 28 L68 76 Z"/><path d="M150 80 L118 120 L148 120 L176 80 Z"/><ellipse cx="205" cy="113" rx="17" ry="7"/><rect x="34" y="40" width="8" height="22" transform="rotate(18 38 51)"/></g><g fill="#d8d2c4"><rect x="112" y="66" width="5" height="4"/><rect x="122" y="65" width="5" height="4"/><rect x="132" y="65" width="5" height="4"/><rect x="142" y="64" width="5" height="4"/><rect x="152" y="64" width="5" height="4"/><rect x="162" y="64" width="5" height="4"/><rect x="172" y="63" width="5" height="4"/><rect x="182" y="63" width="5" height="4"/><rect x="192" y="63" width="5" height="4"/><rect x="202" y="63" width="5" height="4"/><rect x="270" y="63" width="8" height="5"/></g></svg>
+    <div class="caption">File photo: a long-haul workhorse climbs out at dawn.</div>
+    <p>${esc(lead.body)}</p>
+    ${rivals.map(brief).join("")}
+    <p>Analysts say the carrier's load factors bear watching as the schedule grows, with rivals circling every profitable corridor.</p>
+   </div>
+   <div><div class="colhead">Markets</div>
+    <table class="markets"><tr><td>Revenue</td><td style="text-align:right"><b>${G.fmt$(a.rev)}</b></td></tr><tr><td>Profit</td><td style="text-align:right"><b>${G.fmt$(a.profit)}</b></td></tr><tr><td>Best day</td><td style="text-align:right">D${a.best?a.best.day:"—"} (${G.fmt$(a.best?a.best.profit:0)})</td></tr><tr><td>Worst day</td><td style="text-align:right">D${a.worst?a.worst.day:"—"} (${G.fmt$(a.worst?a.worst.profit:0)})</td></tr><tr><td>Fuel</td><td style="text-align:right">$${(a.fuel0||0).toFixed(2)} → $${(a.fuel1||0).toFixed(2)}</td></tr><tr><td>Reputation</td><td style="text-align:right">${Math.round(a.rep0||0)} → ${Math.round(a.rep1||0)}</td></tr></table>
+    <svg viewBox="0 0 200 110" class="newsphoto" style="margin-top:8px" role="img" aria-label="Terminal illustration"><rect x="0" y="0" width="200" height="110" fill="#d8d2c4"/><g stroke="#3a3a3a" stroke-width="3" fill="none"><path d="M12 100 Q100 30 188 100"/><path d="M42 100 Q100 60 158 100"/><path d="M5 100 H195" stroke-width="4"/><path d="M62 100 V82 M100 100 V72 M138 100 V82"/></g><g fill="#3a3a3a"><circle cx="80" cy="102" r="2.5"/><circle cx="120" cy="102" r="2.5"/></g></svg>
+    <div class="caption">New terminal rises at ${esc(homeAp?homeAp.city:s.home)}.</div>
+    ${market.map(brief).join("")}
+    <p><b>Airport upgrades continue.</b> New terminal expansions aim to improve passenger experience with modern amenities and streamlined security.</p>
+   </div>
+  </div>
+  ${rest.length?'<div class="wires"><div class="colhead">More from the wires</div>'+rest.map(brief).join("")+"</div>":""}
+  <div class="rule-orn foot"><span>◆</span><span class="dateline">AFTER 7 DAYS AWAY, EARNINGS DEGRADE — COME BACK DAILY</span><span>◆</span></div>`;
 }
 function gazetteSeg(s){
   // Folded: just the cover. Unfolded: the full front page.
   if(s.gazetteClosed){const a=gazetteData(s);
     return `<div class="gazcover" data-gazopen role="button" title="Unfold the Gazette"><div class="coverline">EST. DAY 1 · PRICE: ONE GOOD LANDING</div><div class="covername">The Skyline Gazette</div><div class="coverline">Day ${s.day} morning edition · ${a.days} day(s) of news inside</div><span class="opentag">Tap to unfold 📰</span></div>`;}
-  return `<div class="paper"><div class="row" style="justify-content:flex-end"><button data-gazclose title="Fold the paper away">Fold ✕</button></div>${paperBody(gazetteData(s))}</div>`;
+  return `<div class="paper"><div class="foldrow"><button data-gazclose class="foldbtn" title="Fold the paper away">Fold ✕</button></div>${paperBody(gazetteData(s),s)}</div>`;
+}
+// --- Crew portraits (web/img/*.png, emoji fallback if a file is missing) ---
+const CREW={
+ captain:{file:"captain.png",emoji:"🧑‍✈️",role:"Captain"},
+ hostess:{file:"hostess.png",emoji:"💁‍♀️",role:"Hostess"},
+ engineer:{file:"engineer.png",emoji:"👨‍🔧",role:"Chief Engineer"},
+ mechanic:{file:"mechanic.png",emoji:"👩‍🔧",role:"Mechanic"},
+ cfo:{file:"cfo.png",emoji:"👩‍💼",role:"CFO"}};
+function crewImg(k){const c=CREW[k];return `<img class="crewimg" src="img/${c.file}" alt="${c.role}" loading="lazy" onerror="this.outerHTML='<span class=\\'crewface\\'>${c.emoji}</span>'">`;}
+function crewCard(k,line){const c=CREW[k];return `<div class="card crewcard">${crewImg(k)}<div><b>${c.role.toUpperCase()}</b><div style="margin-top:6px;font-size:14px">${line}</div></div></div>`;}
+function crewFleet(s){
+  const low=s.fleet.slice().sort((a,b)=>a.cond-b.cond)[0];
+  const lowName=low?(((G.model(low.modelId)||{}).name)||low.modelId):"—";
+  const line=low?`“Keep an eye on <b>${lowName}</b> — condition ${Math.round(low.cond)}%.${low.cond<60?" Book an A-check in Maintenance before she embarrasses us.":" She'll hold for now."}`:`“Hangar's empty. Bring me airplanes.”`;
+  return `<div style="margin-bottom:12px">${crewCard("engineer",line)}</div>`;
+}
+function crewMap(s){
+  const active=s.routes.filter(r=>r.status==="ACTIVE").length;
+  const line=active?`“${active} route${active===1?"":"s"} in the sky, boss. I fly the flag — you pick the destinations.”`:`“Give me a route and I'll be wheels-up before lunch.”`;
+  return `<div style="margin-bottom:12px">${crewCard("captain",line)}</div>`;
+}
+function maintV(s){
+  const rows=s.fleet.map(a=>{
+    const m=G.model(a.modelId)||{name:"Retired ("+a.modelId+")"};
+    const c=Math.round(a.cond);
+    const col=c>=60?"#4ade80":c>=45?"#fbbf24":"#f87171";
+    const st=c>=80?"Excellent":c>=60?"Good":c>=45?"Due soon":"URGENT";
+    return `<tr><td><b>${m.name}</b> <span class="muted">${a.how} @${a.base}</span></td><td style="min-width:120px"><div class="bar"><i style="width:${c}%;background:${col}"></i></div><span class="tiny">${c}% · ${st}</span></td><td>${a.cycles}</td><td>${Math.round(a.hours)}h</td><td>${a.ageY.toFixed(1)}y</td><td><button data-maint="${a.id}">A-check $6K</button> <button data-maintC="${a.id}">C-check $90K</button></td></tr>`;}).join("");
+  const low=s.fleet.slice().sort((a,b)=>a.cond-b.cond)[0];
+  const line=low?`“${s.fleet.length} airframe${s.fleet.length===1?"":"s"} under my wrench. ${Math.round(low.cond)<60?`Worst is <b>${((G.model(low.modelId)||{}).name)||low.modelId}</b> at ${Math.round(low.cond)}% — roll her in!`:"Everything's purring. Come back when something squeaks."}`:`“No airframes yet. Lease one and I'll keep her shining.”`;
+  return `${crewCard("mechanic",line)}
+  <div class="card" style="margin-top:12px"><h3>Maintenance hangar (${s.fleet.length})</h3>
+  <p class="muted">Condition falls every flight. Below 60% risks cancellations; below 45% the chief starts shouting. A-check (+35%, $6K) · C-check (full restore, $90K).</p>
+  <table><tr><th>Aircraft</th><th>Condition</th><th>Cycles</th><th>Hours</th><th>Age</th><th>Service</th></tr>
+  ${rows||'<tr><td colspan="6" class="muted">No aircraft yet.</td></tr>'}</table></div>`;
+}
+function crewRoutes(s){
+  const top=s.routes.filter(r=>r.status==="ACTIVE").slice().sort((a,b)=>(b.profit7||0)-(a.profit7||0))[0];
+  const line=top?`“${top.from}–${top.to} is our darling — ${Math.round((top.lf7||0)*100)}% full and smiling. More frequencies, fuller smiles.”`:`“Give me a route and I'll fill it with smiles, boss.”`;
+  return `<div style="margin-bottom:12px">${crewCard("hostess",line)}</div>`;
+}
+function crewFin(s){
+  const debt=G.outstandingDebt();
+  const daily=(s.loans||[]).filter(l=>l.status==="ACTIVE").reduce((x,l)=>x+l.daily,0);
+  const line=debt>0
+    ?`“We owe <b>${G.fmt$(debt)}</b> at <b>${G.fmt$(daily)}/day</b>. Keep daily profit above that and we all sleep well.”`
+    :`“Books are clean — zero debt. A little leverage could grow us faster… if you dare.”`;
+  return `<div style="margin-bottom:12px">${crewCard("cfo",line)}</div>`;
 }
 function spark(hist,key){
   if(!hist||hist.length<2)return '<span class="muted">—</span>';
@@ -97,8 +190,9 @@ function render(){hud();const s=G.S();if(!s)return;const v=$("#view");
   // async code throws after the div is gone).
   if(tab!=="map"){stopFlights();if(skyMap){try{skyMap.remove();}catch(e){}skyMap=null;}}
   if(tab==="dash")v.innerHTML=dash(s);
-  if(tab==="map")v.innerHTML=`<div class="card"><h3>Your live network</h3><div id="map"></div><p class="muted">Home ${s.home} · <span style="color:#38bdf8">—blue—</span> your routes · ✈️ your flights in real relative speed (click one) · shaded half is night right now</p><p class="tiny">Airport positions: <a href="https://ourairports.com/data/" target="_blank" rel="noopener">OurAirports</a> (public domain) · tiles: © OpenStreetMap contributors, Esri World Imagery — same base layers as <a href="https://ourairports.com/big-map.html" target="_blank" rel="noopener">The Big Map</a></p></div>`+dash(s),drawMap();
+  if(tab==="map")v.innerHTML=`${crewMap(s)}<div class="card"><h3>Your live network</h3><div id="map"></div><p class="muted">Home ${s.home} · <span style="color:#38bdf8">—blue—</span> your routes · ✈️ your flights in real relative speed (click one) · shaded half is night right now</p><p class="tiny">Airport positions: <a href="https://ourairports.com/data/" target="_blank" rel="noopener">OurAirports</a> (public domain) · tiles: © OpenStreetMap contributors, Esri World Imagery — same base layers as <a href="https://ourairports.com/big-map.html" target="_blank" rel="noopener">The Big Map</a></p></div>`+dash(s),drawMap();
   if(tab==="fleet")v.innerHTML=fleetV(s);
+  if(tab==="maint")v.innerHTML=maintV(s);
   if(tab==="routes")v.innerHTML=routesV(s);
   if(tab==="fin")v.innerHTML=finV(s);
   if(tab==="mis")v.innerHTML=misV(s);
@@ -118,9 +212,9 @@ function dash(s){
 }
 function fleetV(s){
   const idle=s.fleet.filter(a=>!s.routes.some(r=>r.aircraftId===a.id&&r.status==="ACTIVE"));
-  return `<div class="card"><h3>Fleet (${s.fleet.length}) · commonality discount ${(G.commonDisc()*100).toFixed(0)}% · fuel $${s.fuel.toFixed(2)}</h3>
+  return `${crewFleet(s)}<div class="card"><h3>Fleet (${s.fleet.length}) · commonality discount ${(G.commonDisc()*100).toFixed(0)}% · fuel $${s.fuel.toFixed(2)}</h3>
   <table><tr><th>Aircraft</th><th>Base</th><th>Cond</th><th>Age</th><th>Status</th><th></th></tr>
-  ${s.fleet.map(a=>{const m=G.model(a.modelId)||{name:"Retired ("+a.modelId+")",cls:"",seats:0,cargo:0,range:"?"};const cap=m.cls==="Cargo"?m.cargo+"t cargo":m.seats+" seats";return `<tr><td><b>${m.name}</b> <span class="muted">${a.how} · ${cap} · ${m.range}km</span></td><td>${a.base}</td><td>${Math.round(a.cond)}%</td><td>${a.ageY.toFixed(1)}y</td><td>${s.routes.some(r=>r.aircraftId===a.id&&r.status==="ACTIVE")?"🟢 flying":"🟡 idle"}</td><td><button data-maint="${a.id}">A-check $6K</button> <button data-maintC="${a.id}">C-check $90K</button> ${a.how==="lease"?`<button data-return="${a.id}" title="Return to lessor (no payout)">Return</button>`:`<button data-sell="${a.id}">Sell</button>`}</td></tr>`;}).join("")}</table>
+  ${s.fleet.map(a=>{const m=G.model(a.modelId)||{name:"Retired ("+a.modelId+")",cls:"",seats:0,cargo:0,range:"?"};const cap=m.cls==="Cargo"?m.cargo+"t cargo":m.seats+" seats";return `<tr><td><b>${m.name}</b> <span class="muted">${a.how} · ${cap} · ${m.range}km</span></td><td>${a.base}</td><td>${Math.round(a.cond)}%</td><td>${a.ageY.toFixed(1)}y</td><td>${s.routes.some(r=>r.aircraftId===a.id&&r.status==="ACTIVE")?"🟢 flying":"🟡 idle"}</td><td>${a.how==="lease"?`<button data-return="${a.id}" title="Return to lessor (no payout)">Return</button>`:`<button data-sell="${a.id}">Sell</button>`}</td></tr>`;}).join("")}</table>
   <p class="muted">${idle.length} idle aircraft.</p></div>
   <div class="grid g2"><div class="card"><h3>Lease / Buy new (100 models)</h3><div class="row"><select id="buyModel">${["Regional","Commuter","Narrowbody","Widebody","Cargo","Business"].map(c=>`<optgroup label="${c}">${D.aircraftModels.filter(m=>m.cls===c).map(m=>`<option value="${m.id}">${m.name} — ${m.cls==="Cargo"?m.cargo+"t":m.seats+" seats"} · ${m.range}km · lease ${G.fmt$(m.lease)}/mo · buy ${G.fmt$(m.buy)}</option>`).join("")}</optgroup>`).join("")}</select><select id="buyHow"><option value="lease">Lease (deposit 1 mo)</option><option value="buy">Buy cash</option></select><button id="doBuy" class="primary">Acquire</button></div><p class="muted">Lease = cheap start, no asset. Buy = equity + resale. Same manufacturer ×6+ = maintenance discount.</p></div>
   <div class="card"><h3>Used market (refreshes)</h3>${s.usedMarket.map(u=>{const m=G.model(u.modelId);if(!m)return "";return `<div class="row">🛩 ${m.name} · ${G.fmt$(u.price)} · cond ${u.cond}% · ${u.ageY}y <button data-used="${u.key}">Buy</button></div>`;}).join("")}</div></div>`;
@@ -129,7 +223,7 @@ function routesV(s){
   const idle=s.fleet.filter(a=>!s.routes.some(r=>r.aircraftId===a.id&&r.status==="ACTIVE"));
   const apOpts=D.airports.map(a=>`<option value="${a.id}">${a.iata||a.id} ${a.city} (${a.country})</option>`).join("");
   const pv=G.routePreview(routeDraft.from,routeDraft.to,(idle[0]&&idle[0].modelId)||"R109",routeDraft.freq,routeDraft.fareY);
-  return `<div class="card"><h3>Open route (limit ${2+s.level*2})</h3>
+  return `${crewRoutes(s)}<div class="card"><h3>Open route (limit ${2+s.level*2})</h3>
    <div class="row">From <select id="rFrom">${apOpts}</select> To <select id="rTo">${apOpts}</select>
    Aircraft <select id="rAc">${idle.length?idle.map(a=>`<option value="${a.id}">${(G.model(a.modelId)||{name:a.modelId}).name} @${a.base}</option>`).join(""):'<option value="">— no idle aircraft, buy one —</option>'}</select>
    Freq <select id="rFreq"><option>1</option><option>2</option><option>3</option><option>4</option></select>
@@ -143,7 +237,7 @@ function finV(s){
   const h=[...s.history].slice(-14).reverse();
   const totR=h.reduce((x,y)=>x+y.rev,0),totP=h.reduce((x,y)=>x+y.profit,0);
   const lf=s.routes.length?s.routes.reduce((x,r)=>x+(r.lf7||0),0)/s.routes.length:0;
-  return `<div class="grid g3"><div class="card"><div class="muted">Cash</div><div class="kpi">${G.fmt$(s.cash)}</div></div>
+  return `${crewFin(s)}<div class="grid g3"><div class="card"><div class="muted">Cash</div><div class="kpi">${G.fmt$(s.cash)}</div></div>
   <div class="card"><div class="muted">14-day revenue</div><div class="kpi">${G.fmt$(totR)}</div></div>
   <div class="card"><div class="muted">14-day profit / avg LF</div><div class="kpi ${totP>=0?'profit':'loss'}">${G.fmt$(totP)}</div><div class="muted">${Math.round(lf*100)}% LF</div></div></div>
   <div class="card"><h3>Analyst view (last 14 days)</h3><table><tr><th>Day</th><th>Pax</th><th>Revenue</th><th>Profit</th></tr>${h.map(x=>`<tr><td>${x.day}</td><td>${x.pax.toLocaleString()}</td><td>${G.fmt$(x.rev)}</td><td class="${x.profit>=0?'profit':'loss'}">${G.fmt$(x.profit)}</td></tr>`).join("")||'<tr><td colspan="4">Advance a day to generate data.</td></tr>'}</table></div>`+loansV(s);

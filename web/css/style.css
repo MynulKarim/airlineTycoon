@@ -25,6 +25,29 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:7px 8px;b
 .plane{background:none!important;border:none!important;font-size:16px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))}
 .paper{background:#f8f3e7;color:#1c1917;border-radius:10px;padding:14px 16px}
 .paper .masthead{font-weight:900;letter-spacing:2px;text-align:center;font-size:19px;border-bottom:3px double #1c1917;padding-bottom:6px}
+/* --- Broadsheet front page (reference: classic daily) --- */
+.rule-double{border-top:5px solid #141210;position:relative;margin-bottom:6px}
+.rule-double:after{content:"";display:block;border-top:1px solid #141210;margin-top:2px}
+.nameplate{text-align:center;font-family:Georgia,'Palatino Linotype','Times New Roman',serif;font-weight:900;line-height:.95;color:#141210}
+.nameplate .l1{font-size:clamp(34px,7vw,62px);letter-spacing:3px}
+.nameplate .l2{font-size:clamp(46px,9.5vw,84px);letter-spacing:8px}
+.rule-orn{display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:2px solid #141210;border-bottom:5px solid #141210;padding:4px 2px;margin:8px 0;color:#141210}
+.rule-orn.foot{border-top:5px solid #141210;border-bottom:2px solid #141210;margin:10px 0 0}
+.rule-orn .dateline{font-family:Georgia,serif;font-size:12px;letter-spacing:2px;text-align:center}
+.leadhead{font-family:Georgia,'Times New Roman',serif;font-weight:900;font-size:clamp(26px,4.5vw,42px);letter-spacing:1px;text-align:center;color:#141210;margin:8px 0 2px;line-height:1.05}
+.newscols{display:grid;grid-template-columns:200px 1fr 200px;gap:16px;margin-top:6px}
+.colhead{font-family:Georgia,serif;font-weight:900;font-size:14px;text-transform:uppercase;letter-spacing:.5px;color:#141210;border-bottom:2px solid #141210;padding-bottom:2px;margin:8px 0 6px}
+.colhead:first-child{margin-top:0}
+.newscols p,.brief{font-family:Georgia,serif;font-size:12.5px;line-height:1.5;text-align:justify;color:#221f1b}
+.brief{margin:6px 0}
+.markets{width:100%;border-collapse:collapse;font-family:Georgia,serif;font-size:12px;color:#221f1b}
+.markets td{border-bottom:1px dotted #8a7f68;padding:3px 0}
+.newsphoto{width:100%;height:auto;display:block;border:1px solid #141210;background:#d8d2c4}
+.caption{font-family:Georgia,serif;font-style:italic;font-size:11px;color:#221f1b;opacity:.75;margin:2px 0 6px}
+.wires{margin-top:8px;border-top:2px solid #141210;padding-top:4px}
+.foldrow{text-align:right}
+.foldbtn{background:none;border:1px solid #b8ab8e;color:#5b4f3a;font-size:12px;border-radius:6px;padding:3px 10px;cursor:pointer;font-family:Georgia,serif}
+@media(max-width:760px){.newscols{grid-template-columns:1fr}}
 .paper .headline{padding:7px 2px;border-bottom:1px dashed #b8ab8e;font-size:14px}
 .papergrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px;font-size:14px}
 .gazcover{background:linear-gradient(180deg,#f8f3e7,#e7dcc2);color:#1c1917;border:1px solid #b8ab8e;border-radius:10px;padding:26px 16px;text-align:center;cursor:pointer}
@@ -40,4 +63,7 @@ select,input{background:#0b1528;color:#e5eefb;border:1px solid #2c4a7c;border-ra
 .alert{border-left:4px solid #0ea5e9;padding:8px 10px;background:#0e2038;border-radius:6px;margin:6px 0;font-size:14px}
 .kpi{font-size:22px;font-weight:800}
 .bar{height:8px;background:#1e2f52;border-radius:6px;overflow:hidden}.bar i{display:block;height:100%;background:#0ea5e9}
+.crewcard{display:flex;gap:12px;align-items:center}
+.crewimg{width:160px;height:200px;object-fit:cover;object-position:top;border-radius:10px;border:2px solid #2f4b7d;background:#0b1528;flex:none}
+.crewface{font-size:96px;line-height:1}
 @media(max-width:640px){.hud{font-size:12px}#map{height:300px}}
