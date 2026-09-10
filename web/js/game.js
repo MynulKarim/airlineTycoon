@@ -16,7 +16,8 @@ window.SKY_GAME = (() => {
       cash:5e6,rep:55,level:1,xp:0,day:1,fuel:2.85,econ:1,event:null,eventDays:0,
       fleet:[],routes:[],ai:[],history:[],missionsDone:{},daily:{day:0,flights:0,profit:0},
       stats:{pax:0,flights:0,revenue:0,profit:0},lastSeen:Date.now(),awayReport:null,
-      advisor:[],story:0,ach:{},usedMarket:genUsed(),fuelLocks:0,loans:[],loanBlacklistUntil:0,gazetteClosed:false,created:Date.now()};
+      advisor:[],story:0,ach:{},usedMarket:genUsed(),fuelLocks:0,loans:[],loanBlacklistUntil:0,gazetteClosed:false,
+      pendingEvent:null,disruption:{days:0,ap:null},promoDays:0,fuelLock:null,contracts:{offers:[],active:[]},created:Date.now()};
     // starter fleet: 2 leased CloudWorks R-109 (100-seat regional jet, DAC-Gulf capable)
     addAircraft("R109","lease",home);addAircraft("R109","lease",home);
     S.ai=genAI();
@@ -87,7 +88,7 @@ window.SKY_GAME = (() => {
     // FREIGHTERS: no pax — revenue = carried tons x km x $0.21 (=$0.30/ton-km at 70% load)
     if(M.cls==="Cargo"){
       const tons=Math.round(M.cargo*freq*0.7*10)/10;
-      const c=SIM.flightCost({model:M,dist,apA:A,apB:B,fuelPrice:S.fuel,ageY:1,commonDisc:commonDisc(),pax:0,freq,cabinJ:false});
+      const c=SIM.flightCost({model:M,dist,apA:A,apB:B,fuelPrice:effFuel(),ageY:1,commonDisc:commonDisc(),pax:0,freq,cabinJ:false});
       const rev=Math.round(tons*dist*0.3);
       const cost=Math.round(c.total*freq);
       return{dist:Math.round(dist),baseD:Math.round(baseD),mFare,pax:0,cargoT:tons,lf:0.7,rev,cost,profit:rev-cost,myShare:1,rivals:rivals.length,isCargo:true,
@@ -96,12 +97,12 @@ window.SKY_GAME = (() => {
     const uP=SIM.util(fareY,freq,S.rep,0.3,0.8,1.2);
     const uR=rivals.map(ai=>SIM.util(mFare*ai.fareMul,2,ai.rep,0.3,0.8,1.2));
     const sh=SIM.share([uP,...uR]);const myShare=sh[0];
-    const dem=SIM.demandAtPrice(baseD,fareY,mFare,e,S.rep,freq,season,event,S.econ,myShare);
+    const dem=SIM.demandAtPrice(baseD,fareY,mFare,e,S.rep,freq,season,event,S.econ,myShare)*(S.promoDays>0?1.15:1);
     const seats=M.seats*freq;
     const pax=Math.min(seats,Math.round(dem));
     const lf=pax/seats;
     const paxSplit={Y:pax};
-    const c=SIM.flightCost({model:M,dist,apA:A,apB:B,fuelPrice:S.fuel,ageY:1,commonDisc:commonDisc(),pax,freq,cabinJ:false});
+    const c=SIM.flightCost({model:M,dist,apA:A,apB:B,fuelPrice:effFuel(),ageY:1,commonDisc:commonDisc(),pax,freq,cabinJ:false});
     // daily totals = per-flight * freq
     const rev=pax*fareY + M.cargo*120*freq*0.5;
     const cost=c.total*freq;
@@ -115,7 +116,7 @@ window.SKY_GAME = (() => {
     if(S.routes.some(r=>r.aircraftId===aircraftId&&r.status==="ACTIVE"))return{err:"Aircraft already assigned. Buy/lease another."};
     const pv=routePreview(fromId,toId,ac.modelId,freq,fareY);
     if(pv.err)return pv;
-    S.routes.push({id:"R"+Date.now(),from:fromId,to:toId,aircraftId,freq,fareY,status:"ACTIVE",lf7:pv.lf,profit7:pv.profit*7,hist:[]});
+    S.routes.push({id:"R"+Date.now()+"_"+Math.floor(Math.random()*1e6),from:fromId,to:toId,aircraftId,freq,fareY,status:"ACTIVE",lf7:pv.lf,profit7:pv.profit*7,conn7:0,hist:[],reviews:[]});
     const inc=S.ai.filter(ai=>ai.routes.some(x=>(x.from===fromId&&x.to===toId)||(x.from===toId&&x.to===fromId)));
     if(inc.length){const ai=inc[0],line=ceoLine(ai,"taunts");pushAdvisor("💬 "+(ai.ceo||"Rival CEO")+" ("+ai.name+"): \""+line+"\"");}
     save();return{ok:true,pv};
@@ -140,15 +141,28 @@ window.SKY_GAME = (() => {
     const rnd=SIM.mulberry(S.day*7919+13)();
     S.fuel=Math.max(1.8,Math.min(4.4,S.fuel+(2.9-S.fuel)*0.06+(rnd-0.5)*0.25));
     if(S.eventDays>0){S.eventDays--;if(S.eventDays===0)S.event=null;}
-    else if(rnd>0.93){const evs=[
-      {name:"Tourism boom in SE Asia",demandMul:1.3,days:5,desc:"+30% demand on BKK/KUL/SIN/MLE routes"},
-      {name:"Fuel spike!",demandMul:0.95,days:4,fuelShock:0.7,desc:"Fuel +$0.70. Consider lower freq."},
-      {name:"Holiday surge",demandMul:1.25,days:3,desc:"+25% everywhere"},
-      {name:"Business summit DXB/DOH",demandMul:1.2,days:4,desc:"+20% Gulf routes"}];
-      const e=evs[Math.floor(rnd*10)%evs.length];S.event=e;S.eventDays=e.days;
-      if(e.fuelShock)S.fuel+=e.fuelShock;
-      pushAdvisor("Event: "+e.name+" — "+e.desc);
-      headline("📣 "+e.name+" — "+e.desc);
+    if(S.promoDays>0)S.promoDays--;
+    if(S.disruption&&S.disruption.days>0){S.disruption.days--;if(S.disruption.days===0){S.disruption.ap=null;pushAdvisor("Operations back to normal after the disruption.");}}
+    if(S.fuelLock&&S.fuelLock.left>0)S.fuelLock.left--;
+    else if(rnd>0.90&&!S.pendingEvent){
+      // choice events: the player decides, the world reacts
+      const served=[...new Set(S.routes.filter(r=>r.status==="ACTIVE").flatMap(r=>[r.from,r.to]))];
+      const ap=served.length?served[Math.floor(SIM.mulberry(S.day*77+3)()*served.length)]:null;
+      const pool=[];
+      if(ap){const nAff=Math.max(1,S.routes.filter(r=>r.status==="ACTIVE"&&(r.from===ap||r.to===ap)).length);
+        pool.push({id:"ash",ap,n:nAff,title:"Volcanic ash closes "+ap,
+          desc:`Eruption grounds traffic at ${ap}. ${nAff} of your routes touch it — ash lasts 2 days.`,
+          opts:[{label:`Reroute everything ($${fmtN(nAff*15000)})`,sub:"No disruption"},{label:"Cancel flights",sub:"Rep -3, 2-day disruption"}]});
+        pool.push({id:"strike",title:"Strike vote at "+S.home,desc:"Ground crews demand a bonus before the holiday rush.",
+          opts:[{label:"Pay $50K bonus",sub:"+2 reputation"},{label:"Refuse",sub:"2-day walkout, rep -2"}]});}
+      pool.push({id:"promo",title:"Tourism board proposal",desc:"A tourism board offers a joint campaign: +15% demand for 5 days.",
+        opts:[{label:"Fund it ($30K)",sub:"+15% demand, 5 days"},{label:"Decline",sub:"Nothing happens"}]});
+      pool.push({id:"fuel",title:"Refinery outage",desc:"A refinery fire will push fuel +$0.50/gal unless you stock reserves.",
+        opts:[{label:"Buy reserves ($60K)",sub:"Spike halved to +$0.25"},{label:"Ride it out",sub:"Fuel +$0.50"}]});
+      pool.push({id:"viral",title:"Crew video goes viral",desc:"A heartwarming video of your crew hit 10M views overnight.",
+        opts:[{label:"Promote it ($20K)",sub:"+3 reputation"},{label:"Let it ride",sub:"+1 reputation"}]});
+      S.pendingEvent=pool[Math.floor(SIM.mulberry(S.day*55+7)()*pool.length)];
+      pushAdvisor("📰 Decision needed: "+S.pendingEvent.title+" — check the alert!");
     }
     let dayRev=0,dayCost=0,dayPax=0,dayFlights=0;
     const disc=commonDisc();
@@ -164,17 +178,28 @@ window.SKY_GAME = (() => {
       const delayP=(100-ac.cond)/250;let pax=pv.pax,flown=r.freq;
       let tons=pv.cargoT||0;
       if(rr<Math.max(0,(60-ac.cond))/500){flown=Math.max(0,r.freq-1);pax=Math.round(pax*(flown/Math.max(1,r.freq)));tons=Math.round(tons*(flown/Math.max(1,r.freq))*10)/10;pushAdvisor("Cancellation on "+r.from+"–"+r.to+" (condition "+Math.round(ac.cond)+"%). Maintain!");}
+      // strike/ash disruption grounds extra flights touching the affected airport
+      if(S.disruption&&S.disruption.days>0&&(!S.disruption.ap||r.from===S.disruption.ap||r.to===S.disruption.ap)&&flown>0){flown--;pax=Math.round(pax*(flown/Math.max(1,r.freq)));tons=Math.round(tons*(flown/Math.max(1,r.freq))*10)/10;}
       const isCargo=M.cls==="Cargo";
-      const rev=isCargo?Math.round(tons*pv.dist*0.3):pax*r.fareY+M.cargo*120*r.freq*0.5;
-      const c=SIM.flightCost({model:M,dist:pv.dist,apA:A,apB:B,fuelPrice:S.fuel,ageY:ac.ageY,commonDisc:disc,pax,freq:r.freq,cabinJ:false});
+      let rev=isCargo?Math.round(tons*pv.dist*0.3):pax*r.fareY+M.cargo*120*r.freq*0.5;
+      const c=SIM.flightCost({model:M,dist:pv.dist,apA:A,apB:B,fuelPrice:effFuel(),ageY:ac.ageY,commonDisc:disc,pax,freq:r.freq,cabinJ:false});
       const cost=c.total*r.freq;
+      // hub through-tickets: pax connect onto your other departures from r.to
+      let conn=0;
+      if(!isCargo){
+        const onward=S.routes.filter(q=>q.status==="ACTIVE"&&q.id!==r.id&&q.from===r.to).length;
+        if(onward>0){conn=Math.round(pax*Math.min(0.35,0.12*onward));rev+=Math.round(conn*r.fareY*0.8);dayPax+=conn;}
+      }
+      // hedge P/L tracking (market minus locked price on actual burn)
+      if(S.fuelLock&&S.fuelLock.left>0)S.fuelLock.saved=(S.fuelLock.saved||0)+(S.fuel-S.fuelLock.price)*(M.fuel*c.hrs*r.freq)/1.5;
       const profit=rev-cost;
       const lf=isCargo?0.7:(M.seats?pax/(M.seats*r.freq):0);
       dayRev+=rev;dayCost+=cost;dayPax+=pax;dayFlights+=flown;
-      r.hist.push({day:S.day,pax,profit:Math.round(profit),lf,tons});
+      r.hist.push({day:S.day,pax,profit:Math.round(profit),lf,tons,conn});
       if(r.hist.length>14)r.hist.shift();
       r.lf7=r.hist.reduce((x,h)=>x+h.lf,0)/r.hist.length;
       r.profit7=r.hist.reduce((x,h)=>x+h.profit,0)/r.hist.length*7;
+      r.conn7=r.hist.reduce((x,h)=>x+(h.conn||0),0)/r.hist.length;
       // wear
       ac.cycles+=r.freq;ac.hours+=c.hrs*r.freq;ac.ageY+=1/365;
       ac.cond=Math.max(5,ac.cond-(r.freq*0.8+c.hrs*r.freq*0.3)/3);
@@ -188,12 +213,30 @@ window.SKY_GAME = (() => {
       if(!r.conceded&&r.hist.length>=5&&(r.lf7||0)>0.75&&(r.profit7||0)>0&&pairRivals.length&&rr<0.2){
         r.conceded=true;const ai2=pairRivals[Math.floor(rr*pairRivals.length)%pairRivals.length];
         const pline=ceoLine(ai2,"praise");pushAdvisor("🤝 "+(ai2.ceo||"Rival CEO")+" ("+ai2.name+"): \""+pline+"\"");headline("🤝 "+(ai2.ceo||"Rival CEO")+" concedes "+r.from+"–"+r.to+": \""+pline+"\"");}
+      // passenger reviews: segments talk back about price/schedule/comfort/reliability
+      if(!r.reviews)r.reviews=[];
+      const rv=SIM.mulberry(S.day*131+r.id.length*17+5)();
+      if(rv<0.65){
+        const mf2=SIM.marketFare(pv.dist,A,B),opts=[];
+        if(!isCargo){
+          if(r.fareY>mf2*1.15)opts.push({seg:"Budget flyers",stars:2,t:"“$"+r.fareY+" for THIS? Never again.”"});
+          else if(r.fareY<mf2*0.9)opts.push({seg:"Budget flyers",stars:5,t:"“Cheapest seat in the sky — telling everyone!”"});
+          if(r.freq<2)opts.push({seg:"Business travelers",stars:2,t:"“One flight a day isn't a schedule. Do better.”"});
+          else if(r.freq>=3)opts.push({seg:"Business travelers",stars:5,t:"“Proper hourly options. My assistant approves.”"});
+          if(lf>0.85&&profit>0)opts.push({seg:"Economy cabin",stars:5,t:"“Full flight, happy crew!”"});
+        }
+        if(ac.cond<60||ac.ageY>8)opts.push({seg:"Premium cabin",stars:2,t:"“The seats creak louder than the engines.”"});
+        else if(!isCargo&&S.rep>70&&M.comfort>=6)opts.push({seg:"Premium cabin",stars:5,t:"“A cabin worthy of the fare.”"});
+        if(flown<r.freq)opts.push({seg:"Families",stars:1,t:"“Stranded with kids. Thanks for nothing.”"});
+        if(opts.length){r.reviews.unshift(opts[Math.floor(rv*97)%opts.length]);if(r.reviews.length>4)r.reviews.pop();}
+      }
     }
     // lease + overhead daily
     let fixed=2500+S.fleet.length*400;
     S.fleet.forEach(a=>{if(a.how==="lease"&&S.day>=a.leaseDue){a.leaseDue=S.day+180;fixed+=(model(a.modelId)||{lease:0}).lease*0.1;}});
     dayCost+=fixed;
     dayCost+=processLoans(); // loan installments debit after revenue lands
+    refreshOffers();processContracts(); // sponsors top up offers, weekly checks run
     const profit=dayRev-dayCost;
     S.cash+=profit;
     S.stats={pax:S.stats.pax+dayPax,flights:S.stats.flights+dayFlights,revenue:S.stats.revenue+dayRev,profit:S.stats.profit+profit};
@@ -316,6 +359,85 @@ window.SKY_GAME = (() => {
       headline("🚨 "+S.name+" defaults with no assets to seize — blacklisted by lenders for 30 days.");
     }
   }
+  // ---------- CHOICE EVENTS ----------
+  function resolveEvent(idx){
+    const ev=S.pendingEvent;if(!ev)return{err:"No pending decision."};
+    if(!ev.opts[idx])return{err:"Bad option."};
+    if(applyEvent(ev.id,idx,ev)===false)return{err:"Can't afford it — earn more cash first."};
+    S.pendingEvent=null;save();return{ok:true};
+  }
+  function applyEvent(id,idx,ev){
+    if(id==="ash"){const n=ev.n||1;
+      if(idx===0){S.cash-=15000*n;pushAdvisor("Rerouted around the ash ($"+fmtN(15000*n)+"). Flights operate.");headline("✈️ "+S.name+" reroutes around the ash cloud ($"+fmtN(15000*n)+").");}
+      else{S.rep=Math.max(5,S.rep-3);S.disruption={days:2,ap:ev.ap};pushAdvisor("Cancelled through the ash. Rep -3, 2-day disruption at "+ev.ap+".");headline("🌋 Ash chaos: "+S.name+" cancels at "+ev.ap+".");}}
+    else if(id==="strike"){
+      if(idx===0){if(S.cash<50000)return false;S.cash-=50000;S.rep=Math.min(99,S.rep+2);pushAdvisor("Bonus paid. Crews stand down. Rep +2.");headline("🤝 "+S.name+" buys labor peace ($50K bonus).");}
+      else{S.rep=Math.max(5,S.rep-2);S.disruption={days:2,ap:null};pushAdvisor("Walkout! All routes disrupted 2 days. Rep -2.");headline("✊ Strike grounds "+S.name+" for two days.");}}
+    else if(id==="promo"){
+      if(idx===0){if(S.cash<30000)return false;S.cash-=30000;S.promoDays=5;pushAdvisor("Campaign live: +15% demand for 5 days.");headline("📣 "+S.name+" launches a tourism campaign.");}
+      else pushAdvisor("Declined the tourism campaign.");}
+    else if(id==="fuel"){
+      if(idx===0){if(S.cash<60000)return false;S.cash-=60000;S.fuel=Math.min(5,S.fuel+0.25);pushAdvisor("Reserves stocked. Fuel only +$0.25.");}
+      else{S.fuel=Math.min(5,S.fuel+0.5);pushAdvisor("Fuel spiked +$0.50/gal.");headline("⛽ Refinery outage spikes fuel to $"+S.fuel.toFixed(2)+".");}}
+    else if(id==="viral"){
+      if(idx===0){if(S.cash<20000)return false;S.cash-=20000;S.rep=Math.min(99,S.rep+3);pushAdvisor("Video promoted worldwide. Rep +3.");headline("📱 "+S.name+"'s crew charms 10M viewers.");}
+      else{S.rep=Math.min(99,S.rep+1);pushAdvisor("The video spreads on its own. Rep +1.");}
+    }
+    return true;
+  }
+  // ---------- FUEL HEDGE ----------
+  function effFuel(){const l=S.fuelLock;return (l&&l.left>0)?l.price:S.fuel;}
+  function lockFuel(){
+    if(S.fuelLock&&S.fuelLock.left>0)return{err:"A hedge is already active."};
+    const price=Math.round(S.fuel*1.05*100)/100;
+    S.fuelLock={price,left:30,saved:0};
+    pushAdvisor("Fuel hedged at $"+price.toFixed(2)+" for 30 days (+5% premium).");
+    save();return{ok:true};
+  }
+  // ---------- CONTRACTS ----------
+  const SPONSORS=["GulfTech Industries","Meridian Bank","World Athletics Council","SunFest Tourism Board","Pacific Freight Forwarders","Global MedEvac Alliance","EuroCup Committee","Hajj Travel Services"];
+  function refreshOffers(){
+    const act=S.routes.filter(r=>r.status==="ACTIVE");
+    if(!act.length)return;
+    let guard=0;
+    while(S.contracts.offers.length<3&&guard++<20){
+      const r=act[Math.floor(Math.random()*act.length)];
+      const m=model(((S.fleet.find(a=>a.id===r.aircraftId)||{}).modelId));
+      const seats=(m?m.seats:100)*r.freq;
+      S.contracts.offers.push({id:"C"+Date.now()+Math.floor(Math.random()*9999),
+        sponsor:SPONSORS[Math.floor(Math.random()*SPONSORS.length)],
+        from:r.from,to:r.to,need:0.7,weeks:3,
+        pay:Math.max(5000,Math.round(seats*15)),bonus:Math.max(8000,Math.round(seats*20))});
+    }
+  }
+  function acceptContract(id){
+    const i=S.contracts.offers.findIndex(o=>o.id===id);if(i<0)return{err:"Offer expired."};
+    if(S.contracts.active.filter(c=>c.status==="ACTIVE").length>=2)return{err:"Max 2 active contracts."};
+    const o=S.contracts.offers[i];
+    const route=S.routes.find(r=>r.status==="ACTIVE"&&((r.from===o.from&&r.to===o.to)||(r.from===o.to&&r.to===o.from)));
+    if(!route)return{err:"You no longer fly that route."};
+    S.contracts.offers.splice(i,1);
+    S.contracts.active.push({...o,routeId:route.id,paidWeeks:0,strikes:0,nextCheck:S.day+7,status:"ACTIVE"});
+    pushAdvisor("Signed: "+o.sponsor+" on "+o.from+"–"+o.to+" ("+fmt$(o.pay)+"/wk x"+o.weeks+", keep LF 70%+).");
+    save();return{ok:true};
+  }
+  function processContracts(){
+    for(const c of S.contracts.active){
+      if(c.status!=="ACTIVE"||S.day<c.nextCheck)continue;
+      const r=S.routes.find(x=>x.id===c.routeId);
+      if(r&&r.status==="ACTIVE"&&(r.lf7||0)>=c.need){
+        S.cash+=c.pay;c.paidWeeks++;c.nextCheck=S.day+7;
+        pushAdvisor("Contract payout: "+c.sponsor+" paid "+fmt$(c.pay)+".");
+        if(c.paidWeeks>=c.weeks){c.status="DONE";S.cash+=c.bonus;S.rep=Math.min(99,S.rep+2);
+          pushAdvisor("Contract complete: bonus "+fmt$(c.bonus)+", +2 rep.");headline("🤝 "+c.sponsor+" completes its contract with "+S.name+".");}
+      }else{
+        c.strikes++;c.nextCheck=S.day+7;
+        pushAdvisor("Contract warning: "+c.sponsor+" ("+c.strikes+" strike"+(c.strikes>1?"s":"")+") — keep LF above 70%.");
+        if(c.strikes>=2){c.status="LOST";S.rep=Math.max(5,S.rep-3);
+          pushAdvisor("Contract LOST: "+c.sponsor+" walked away. Rep -3.");headline("📉 "+c.sponsor+" dumps "+S.name+" over empty seats.");}
+      }
+    }
+  }
   const STORY=[
     {t:"Lease your 3rd aircraft",check:s=>s.fleet.length>=3,rw:150000},
     {t:"Open your first route",check:s=>s.routes.length>=1,rw:100000},
@@ -351,6 +473,12 @@ window.SKY_GAME = (() => {
     if(!Array.isArray(S.loans))S.loans=[];
     if(!S.loanBlacklistUntil)S.loanBlacklistUntil=0;
     if(S.gazetteClosed===undefined)S.gazetteClosed=false;
+    if(!S.pendingEvent)S.pendingEvent=null;
+    if(!S.disruption)S.disruption={days:0,ap:null};
+    if(!S.promoDays)S.promoDays=0;
+    if(!S.fuelLock)S.fuelLock=null;
+    if(!S.contracts)S.contracts={offers:[],active:[]};
+    (S.routes||[]).forEach(r=>{if(!r.reviews)r.reviews=[];if(r.conn7===undefined)r.conn7=0;});
     // old saves: AI has no CEO persona yet — backfill display data, keep their routes
     const CEOFB=[{ceo:"Maya Chen",face:"🧑‍✈️",base:"CGK"},{ceo:"Lord Ashworth",face:"🤵",base:"LHR"},{ceo:"Dolly Ray",face:"👩‍✈️",base:"ATL"},{ceo:"Omar Haddad",face:"🧔",base:"DXB"}];
     (S.ai||[]).forEach((a,i)=>{const f=CEOFB[i%4];if(!a.ceo)a.ceo=f.ceo;if(!a.face)a.face=f.face;if(!a.base)a.base=f.base;
@@ -380,6 +508,6 @@ window.SKY_GAME = (() => {
     tot.fuel0=fuel0;tot.fuel1=S.fuel;tot.rep0=rep0;tot.rep1=S.rep;tot.best=best;tot.worst=worst;
     S.awayReport=tot;S.lastSeen=Date.now();save();return tot;
   }
-  return{S:()=>S,newAirline,load,reset,save,addAircraft,openRoute,routePreview,optimizeFare,simulateDay,maintain,loanPlans,loanQuote,takeLoan,payoffLoan,loanSchedule,creditLimit,outstandingDebt,checkMissions,pushAdvisor,advisorTips,catchUp,commonDisc,ap,model,fmt$,fmtN,DAY_MS,
+  return{S:()=>S,newAirline,load,reset,save,addAircraft,openRoute,routePreview,optimizeFare,simulateDay,maintain,loanPlans,loanQuote,takeLoan,payoffLoan,loanSchedule,creditLimit,outstandingDebt,effFuel,lockFuel,resolveEvent,acceptContract,checkMissions,pushAdvisor,advisorTips,catchUp,commonDisc,ap,model,fmt$,fmtN,DAY_MS,
     story:()=>STORY};
 })();

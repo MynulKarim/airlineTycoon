@@ -16,6 +16,14 @@ No build step. Just open in a browser.
 ## What's simulated (per GDD §42)
 Base demand, elasticity, logit market share vs 4 AI personalities, fare/freq/rep effects, fuel random-walk + events, wear/maint, XP/levels, bankruptcy protection, offline catch-up (45s=1 day away, cap 40d, degraded after 7d) with "While you were away…" report.
 
+## Depth systems
+- Passenger voices: per-route segment reviews (budget/business/premium/family) react to your fare, frequency, aircraft age, condition, and cancellations.
+- Hubs: through-tickets — routes feeding your other departures from the same airport earn connecting pax (12% per onward flight, cap 35%); hub card + per-route counters.
+- Visible wear: livery dirties with condition/age (Factory fresh → Rust bucket); C-checks include a repaint; old jets draw premium-cabin complaints.
+- Choice events: ash closures, strikes, promo deals, refinery outages, viral videos — each with 2 priced options (ash/strike can disrupt flights). Ignored alerts wait; event modal blocks stacking.
+- Contracts: sponsors offer weekly payouts on your active routes (keep LF ≥70%, 3 weeks + bonus); strikes, termination, and rep effects included.
+- Fuel desk: hedge today's price +5% for 30 days, with live P/L tracked on actual burn.
+
 ## Feel features
 - Living map: your flights animate at true relative cruise speeds (click a plane for LF/profit + aircraft/speed), day/night shade from real UTC time, airport popups link to OurAirports + plan From/To. Rivals stay off the map — you'll hear from them instead.
 - Skyline Gazette: front page on the dashboard (offline headlines, best/worst day, fuel/rep deltas). Fold it away to a stylish cover ("The Skyline Gazette" — tap to unfold); unfolds automatically with fresh news after time away.

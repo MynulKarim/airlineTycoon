@@ -147,16 +147,18 @@ function maintV(s){
   const rows=s.fleet.map(a=>{
     const m=G.model(a.modelId)||{name:"Retired ("+a.modelId+")"};
     const c=Math.round(a.cond);
+    const dirt=Math.min(90,Math.round((100-a.cond)*0.9+a.ageY*1.5));
+    const paint=a.cond>=85?"Factory fresh":a.cond>=65?"Faded":a.cond>=45?"Grubby":"Rust bucket";
     const col=c>=60?"#4ade80":c>=45?"#fbbf24":"#f87171";
     const st=c>=80?"Excellent":c>=60?"Good":c>=45?"Due soon":"URGENT";
-    return `<tr><td><b>${m.name}</b> <span class="muted">${a.how} @${a.base}</span></td><td style="min-width:120px"><div class="bar"><i style="width:${c}%;background:${col}"></i></div><span class="tiny">${c}% · ${st}</span></td><td>${a.cycles}</td><td>${Math.round(a.hours)}h</td><td>${a.ageY.toFixed(1)}y</td><td><button data-maint="${a.id}">A-check $6K</button> <button data-maintC="${a.id}">C-check $90K</button></td></tr>`;}).join("");
+    return `<tr><td><b>${m.name}</b> <span class="muted">${a.how} @${a.base}</span></td><td style="text-align:center"><span style="font-size:26px;filter:grayscale(${dirt}%) brightness(${100-Math.round(dirt/3)}%)">✈️</span><div class="tiny">${paint}</div></td><td style="min-width:120px"><div class="bar"><i style="width:${c}%;background:${col}"></i></div><span class="tiny">${c}% · ${st}</span></td><td>${a.cycles}</td><td>${Math.round(a.hours)}h</td><td>${a.ageY.toFixed(1)}y</td><td><button data-maint="${a.id}">A-check $6K</button> <button data-maintC="${a.id}" title="Full restore + fresh repaint">C-check $90K</button></td></tr>`;}).join("");
   const low=s.fleet.slice().sort((a,b)=>a.cond-b.cond)[0];
   const line=low?`“${s.fleet.length} airframe${s.fleet.length===1?"":"s"} under my wrench. ${Math.round(low.cond)<60?`Worst is <b>${((G.model(low.modelId)||{}).name)||low.modelId}</b> at ${Math.round(low.cond)}% — roll her in!`:"Everything's purring. Come back when something squeaks."}`:`“No airframes yet. Lease one and I'll keep her shining.”`;
   return `${crewCard("mechanic",line)}
   <div class="card" style="margin-top:12px"><h3>Maintenance hangar (${s.fleet.length})</h3>
   <p class="muted">Condition falls every flight. Below 60% risks cancellations; below 45% the chief starts shouting. A-check (+35%, $6K) · C-check (full restore, $90K).</p>
-  <table><tr><th>Aircraft</th><th>Condition</th><th>Cycles</th><th>Hours</th><th>Age</th><th>Service</th></tr>
-  ${rows||'<tr><td colspan="6" class="muted">No aircraft yet.</td></tr>'}</table></div>`;
+  <table><tr><th>Aircraft</th><th>Livery</th><th>Condition</th><th>Cycles</th><th>Hours</th><th>Age</th><th>Service</th></tr>
+  ${rows||'<tr><td colspan="7" class="muted">No aircraft yet.</td></tr>'}</table></div>`;
 }
 function crewRoutes(s){
   const top=s.routes.filter(r=>r.status==="ACTIVE").slice().sort((a,b)=>(b.profit7||0)-(a.profit7||0))[0];
@@ -198,6 +200,42 @@ function render(){hud();const s=G.S();if(!s)return;const v=$("#view");
   if(tab==="mis")v.innerHTML=misV(s);
   if(tab==="board")v.innerHTML=boardV(s);
   bind(v);
+  renderEventModal();
+}
+function renderEventModal(){
+  const m=$("#eventModal");if(!m)return;const s=G.S();
+  if(!s||!s.pendingEvent){m.classList.add("hidden");return;}
+  const ev=s.pendingEvent;
+  m.classList.remove("hidden");
+  $("#eventBody").innerHTML=`<h3>📰 Decision needed</h3><p><b>${esc(ev.title)}</b></p><p class="muted">${esc(ev.desc)}</p>`
+   +ev.opts.map((o,i)=>`<button data-eopt="${i}" style="display:block;width:100%;margin:6px 0;text-align:left"><b>${esc(o.label)}</b><br><span class="tiny muted">${esc(o.sub)}</span></button>`).join("");
+  m.querySelectorAll("[data-eopt]").forEach(b=>b.onclick=()=>{const r=G.resolveEvent(+b.dataset.eopt);if(r.err)alert(r.err);else render();});
+}
+function reviewsV(s){
+  const items=[];
+  s.routes.forEach(r=>{((r.reviews)||[]).slice(0,1).forEach(t=>items.push({r,t}));});
+  if(!items.length)return "";
+  const stars=n=>"★".repeat(n)+"☆".repeat(5-n);
+  return `<div class="card"><h3>💬 Passenger voices</h3>${items.map(({r,t})=>`<div class="alert"><b>${esc(t.seg)}</b> <span class="stars">${stars(t.stars)}</span> · ${r.from}–${r.to}: ${esc(t.t)}</div>`).join("")}</div>`;
+}
+function hubV(s){
+  const touch={};
+  s.routes.filter(r=>r.status==="ACTIVE").forEach(r=>{[r.from,r.to].forEach(a=>{(touch[a]=touch[a]||{n:0,conn:0});touch[a].n++;touch[a].conn+=(r.conn7||0)/2;});});
+  const hubs=Object.entries(touch).filter(([,x])=>x.n>=2).sort((a,b)=>b[1].conn-a[1].conn).slice(0,3);
+  if(!hubs.length)return "";
+  return `<div class="card"><h3>🔗 Hubs</h3>${hubs.map(([a,x])=>`<div>🔗 <b>${a}</b> · ${x.n} routes · ~${Math.round(x.conn)} connecting pax/day</div>`).join("")}<p class="tiny muted">Through-tickets: routes feeding your other departures from the same airport earn bonus connecting passengers.</p></div>`;
+}
+function contractsV(s){
+  const offs=((s.contracts||{}).offers)||[];
+  const act=((s.contracts||{}).active)||[];
+  const live=act.filter(c=>c.status==="ACTIVE");
+  return `<div class="card"><h3>🤝 Corporate contracts</h3>
+  ${live.length?live.map(c=>`<div class="alert">🏢 <b>${esc(c.sponsor)}</b> on ${c.from}–${c.to} · ${G.fmt$(c.pay)}/wk · week ${c.paidWeeks+1}/${c.weeks} · check Day ${c.nextCheck}${c.strikes?` · <span class="loss">${c.strikes} strike${c.strikes>1?"s":""}</span>`:""}</div>`).join(""):'<p class="muted">No active contracts (max 2).</p>'}
+  ${offs.length?offs.map(o=>`<div class="row">🏢 <b>${esc(o.sponsor)}</b> wants ${o.from}–${o.to} · ${G.fmt$(o.pay)}/wk × ${o.weeks} + ${G.fmt$(o.bonus)} bonus <span class="tiny muted">(keep LF ≥70%)</span> <button data-accept="${o.id}">Sign</button></div>`).join(""):'<p class="muted">No offers — keep an active route flying to attract sponsors.</p>'}</div>`;
+}
+function fuelDesk(s){
+  const l=s.fuelLock,live=l&&l.left>0;
+  return `<div class="card"><h3>⛽ Fuel desk</h3><div class="row">Market <b>$${s.fuel.toFixed(2)}</b> ${live?`· Locked <b>$${l.price.toFixed(2)}</b> · ${l.left}d left · hedge P/L <b class="${(l.saved||0)>=0?'profit':'loss'}">${G.fmt$(Math.round(l.saved||0))}</b>`:`· <button id="doLock">Lock 30 days @ $${(s.fuel*1.05).toFixed(2)}</button>`}</div><p class="tiny muted">Hedge = pay a 5% premium to freeze today's price for 30 days. You win when spikes hit, lose a little when prices fall.</p></div>`;
 }
 function dash(s){
   const last=[...s.history].slice(-1)[0]||{rev:0,profit:0,pax:0};
@@ -231,7 +269,7 @@ function routesV(s){
    <div class="row" style="margin-top:8px"><button id="doPreview">Preview</button><button id="doOpt">✨ Optimize fare</button><button id="doOpen" class="primary">Launch route</button></div>
    <div id="pv" style="margin-top:8px">${pv.err?`<span class="loss">${esc(pv.err)}</span>`:pv.isCargo?`Dist ${pv.dist}km · Freighter · Cargo <b>${pv.cargoT}t</b> · Profit <b class="${pv.profit>=0?'profit':'loss'}">${G.fmt$(pv.profit)}/day</b>`: `Dist ${pv.dist}km · Mkt $${pv.mFare} · Share ${Math.round(pv.myShare*100)}% vs ${pv.rivals} AI · Pax <b>${pv.pax}</b> · LF <b>${Math.round(pv.lf*100)}%</b> · Profit <b class="${pv.profit>=0?'profit':'loss'}">${G.fmt$(pv.profit)}/day</b>`}</div></div>
   <div class="card"><h3>Your routes</h3><table><tr><th>Route</th><th>Freq/Fare</th><th>LF 7d</th><th>Profit/d</th><th>Trend</th><th></th></tr>
-  ${s.routes.map(r=>`<tr><td><b>${r.from}–${r.to}</b> <span class="muted">${(G.model((s.fleet.find(a=>a.id===r.aircraftId)||{}).modelId)||{name:r.status==="REVIEW"?"— aircraft sold —":"?" }).name}</span></td><td>${r.freq}× · $${r.fareY}</td><td>${Math.round((r.lf7||0)*100)}%</td><td class="${(r.profit7||0)>=0?'profit':'loss'}">${G.fmt$((r.profit7||0)/7)}</td><td>${spark(r.hist,"profit")}</td><td><button data-susp="${r.id}">${r.status==="ACTIVE"?"Suspend":"Resume"}</button> <button data-close="${r.id}" class="danger">Close</button></td></tr>`).join("")||'<tr><td colspan="6" class="muted">None yet.</td></tr>'}</table></div>`;
+  ${s.routes.map(r=>`<tr><td><b>${r.from}–${r.to}</b> <span class="muted">${(G.model((s.fleet.find(a=>a.id===r.aircraftId)||{}).modelId)||{name:r.status==="REVIEW"?"— aircraft sold —":"?" }).name}</span></td><td>${r.freq}× · $${r.fareY}</td><td>${Math.round((r.lf7||0)*100)}%${(r.conn7||0)>0?`<div class="tiny">+${Math.round(r.conn7)} conn</div>`:""}</td><td class="${(r.profit7||0)>=0?'profit':'loss'}">${G.fmt$((r.profit7||0)/7)}</td><td>${spark(r.hist,"profit")}</td><td><button data-susp="${r.id}">${r.status==="ACTIVE"?"Suspend":"Resume"}</button> <button data-close="${r.id}" class="danger">Close</button></td></tr>`).join("")||'<tr><td colspan="6" class="muted">None yet.</td></tr>'}</table></div>`+reviewsV(s)+hubV(s)+contractsV(s);
 }
 function finV(s){
   const h=[...s.history].slice(-14).reverse();
@@ -240,7 +278,7 @@ function finV(s){
   return `${crewFin(s)}<div class="grid g3"><div class="card"><div class="muted">Cash</div><div class="kpi">${G.fmt$(s.cash)}</div></div>
   <div class="card"><div class="muted">14-day revenue</div><div class="kpi">${G.fmt$(totR)}</div></div>
   <div class="card"><div class="muted">14-day profit / avg LF</div><div class="kpi ${totP>=0?'profit':'loss'}">${G.fmt$(totP)}</div><div class="muted">${Math.round(lf*100)}% LF</div></div></div>
-  <div class="card"><h3>Analyst view (last 14 days)</h3><table><tr><th>Day</th><th>Pax</th><th>Revenue</th><th>Profit</th></tr>${h.map(x=>`<tr><td>${x.day}</td><td>${x.pax.toLocaleString()}</td><td>${G.fmt$(x.rev)}</td><td class="${x.profit>=0?'profit':'loss'}">${G.fmt$(x.profit)}</td></tr>`).join("")||'<tr><td colspan="4">Advance a day to generate data.</td></tr>'}</table></div>`+loansV(s);
+  <div class="card"><h3>Analyst view (last 14 days)</h3><table><tr><th>Day</th><th>Pax</th><th>Revenue</th><th>Profit</th></tr>${h.map(x=>`<tr><td>${x.day}</td><td>${x.pax.toLocaleString()}</td><td>${G.fmt$(x.rev)}</td><td class="${x.profit>=0?'profit':'loss'}">${G.fmt$(x.profit)}</td></tr>`).join("")||'<tr><td colspan="4">Advance a day to generate data.</td></tr>'}</table></div>`+fuelDesk(s)+loansV(s);
 }
 function loansV(s){
   const plans=G.loanPlans();
@@ -360,6 +398,8 @@ function bind(v){
   const doQuote=v.querySelector("#doQuote");if(doQuote)doQuote.onclick=()=>{const q=G.loanQuote(+v.querySelector("#loanAmt").value,v.querySelector("#loanPlan").value);v.querySelector("#loanQuote").innerHTML=q.err?`<span class="loss">${esc(q.err)}</span>`:`Borrow <b>${G.fmt$(q.amount)}</b> → <b>${G.fmt$(q.daily)}/day</b> x ${q.days}d · total ${G.fmt$(q.total)} (interest ${G.fmt$(q.interest)}, ${(q.apr*100).toFixed(1)}% APR)`;};
   const doLoan=v.querySelector("#doLoan");if(doLoan)doLoan.onclick=()=>{const r=G.takeLoan(+v.querySelector("#loanAmt").value,v.querySelector("#loanPlan").value);if(r.err)alert(r.err);else render();};
   v.querySelectorAll("[data-payoff]").forEach(b=>b.onclick=()=>{const r=G.payoffLoan(b.dataset.payoff);if(r.err)alert(r.err);else render();});
+  v.querySelectorAll("[data-accept]").forEach(b=>b.onclick=()=>{const r=G.acceptContract(b.dataset.accept);if(r.err)alert(r.err);else render();});
+  const doLock=v.querySelector("#doLock");if(doLock)doLock.onclick=()=>{const r=G.lockFuel();if(r.err)alert(r.err);else render();};
   const rf=v.querySelector("#rFrom");if(rf){rf.value=routeDraft.from;v.querySelector("#rTo").value=routeDraft.to;v.querySelector("#rFreq").value=String(routeDraft.freq);
     rf.onchange=()=>routeDraft.from=rf.value;v.querySelector("#rTo").onchange=e=>routeDraft.to=e.target.value;
     v.querySelector("#rFreq").onchange=e=>routeDraft.freq=+e.target.value;v.querySelector("#rFare").oninput=e=>routeDraft.fareY=+e.target.value||200;
