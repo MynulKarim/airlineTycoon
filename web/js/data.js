@@ -209,7 +209,10 @@ const airports = [
  {id:"MNL",ident:"RPLL",icao:"RPLL",iata:"MNL",name:"Ninoy Aquino Intl",city:"Manila",country:"PH",tier:2,pop:14e6,gdppc:4500,tourism:65,business:65,feePax:9,feeMov:1100,slots:16,runway:3410,lat:14.5086,lon:121.0194,elev:75,type:"large_airport",conn:0.7},
  {id:"SGN",ident:"VVTS",icao:"VVTS",iata:"SGN",name:"Tan Son Nhat Intl",city:"Ho Chi Minh City",country:"VN",tier:2,pop:9e6,gdppc:5500,tourism:75,business:70,feePax:10,feeMov:1200,slots:14,runway:3800,lat:10.8188,lon:106.652,elev:33,type:"large_airport",conn:0.7},
  {id:"MEL",ident:"YMML",icao:"YMML",iata:"MEL",name:"Melbourne Airport",city:"Melbourne",country:"AU",tier:3,pop:5e6,gdppc:52000,tourism:80,business:80,feePax:20,feeMov:2300,slots:14,runway:3657,lat:-37.669,lon:144.841,elev:434,type:"large_airport",conn:0.75},
- {id:"AKL",ident:"NZAA",icao:"NZAA",iata:"AKL",name:"Auckland Airport",city:"Auckland",country:"NZ",tier:2,pop:1.7e6,gdppc:45000,tourism:85,business:65,feePax:18,feeMov:2100,slots:12,runway:3420,lat:-37.0082,lon:174.785,elev:23,type:"large_airport",conn:0.65}
+ {id:"AKL",ident:"NZAA",icao:"NZAA",iata:"AKL",name:"Auckland Airport",city:"Auckland",country:"NZ",tier:2,pop:1.7e6,gdppc:45000,tourism:85,business:65,feePax:18,feeMov:2100,slots:12,runway:3420,lat:-37.0082,lon:174.785,elev:23,type:"large_airport",conn:0.65},
+ {id:"ANC",ident:"PANC",icao:"PANC",iata:"ANC",name:"Ted Stevens Anchorage Intl",city:"Anchorage",country:"US",tier:2,pop:0.3e6,gdppc:60000,tourism:20,business:55,feePax:7,feeMov:800,slots:12,runway:3500,lat:61.1743,lon:-149.9962,elev:152,type:"large_airport",conn:0.5},
+ {id:"MEM",ident:"KMEM",icao:"KMEM",iata:"MEM",name:"Memphis Intl",city:"Memphis",country:"US",tier:2,pop:0.6e6,gdppc:45000,tourism:25,business:60,feePax:7,feeMov:800,slots:12,runway:3400,lat:35.0424,lon:-89.9767,elev:341,type:"large_airport",conn:0.55},
+ {id:"LEJ",ident:"EDDP",icao:"EDDP",iata:"LEJ",name:"Leipzig/Halle Airport",city:"Leipzig",country:"DE",tier:2,pop:0.6e6,gdppc:48000,tourism:30,business:50,feePax:8,feeMov:900,slots:12,runway:3600,lat:51.4239,lon:12.2364,elev:466,type:"large_airport",conn:0.5}
 ];
 return {airports, aircraftModels};
 })();

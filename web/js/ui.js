@@ -1,7 +1,7 @@
 // Skyline UI controller
 (function(){
 const G=window.SKY_GAME,D=window.SKY_DATA;
-let tab="dash",auto=true,timer=null,routeDraft={from:"DAC",to:"DXB",freq:2,fareY:299},skyMap=null,skyFx=[];
+let tab="dash",auto=true,timer=null,routeDraft={from:"DAC",to:"DXB",freq:2,fareY:299},skyMap=null,skyFx=[],cabinSel=null;
 window.SKY_UI={setFrom(id){routeDraft.from=id;tab="routes";document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on",x.dataset.t==="routes"));render();},
  setTo(id){routeDraft.to=id;tab="routes";document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on",x.dataset.t==="routes"));render();}};
 // --- SFX: tiny synthesized WebAudio sounds, no assets ---
@@ -192,7 +192,7 @@ function render(){hud();const s=G.S();if(!s)return;const v=$("#view");
   // async code throws after the div is gone).
   if(tab!=="map"){stopFlights();if(skyMap){try{skyMap.remove();}catch(e){}skyMap=null;}}
   if(tab==="dash")v.innerHTML=dash(s);
-  if(tab==="map")v.innerHTML=`${crewMap(s)}<div class="card"><h3>Your live network</h3><div id="map"></div><p class="muted">Home ${s.home} · <span style="color:#38bdf8">—blue—</span> your routes · ✈️ your flights in real relative speed (click one) · shaded half is night right now</p><p class="tiny">Airport positions: <a href="https://ourairports.com/data/" target="_blank" rel="noopener">OurAirports</a> (public domain) · tiles: © OpenStreetMap contributors, Esri World Imagery — same base layers as <a href="https://ourairports.com/big-map.html" target="_blank" rel="noopener">The Big Map</a></p></div>`+dash(s),drawMap();
+  if(tab==="map")v.innerHTML=`${crewMap(s)}<div class="card"><h3>Your live network</h3><div id="map"></div><p class="muted">Home ${s.home} · <span style="color:#38bdf8">—blue—</span> your routes · ✈️ your flights in real relative speed (click one) · shaded half is night right now</p><p class="tiny">Airport positions: <a href="https://ourairports.com/data/" target="_blank" rel="noopener">OurAirports</a> (public domain) · tiles © Esri (street + imagery)</p></div>`+dash(s),drawMap();
   if(tab==="fleet")v.innerHTML=fleetV(s);
   if(tab==="maint")v.innerHTML=maintV(s);
   if(tab==="routes")v.innerHTML=routesV(s);
@@ -214,7 +214,10 @@ function renderEventModal(){
 function reviewsV(s){
   const items=[];
   s.routes.forEach(r=>{((r.reviews)||[]).slice(0,1).forEach(t=>items.push({r,t}));});
-  if(!items.length)return "";
+  if(!items.length){
+    if(!s.routes.length)return "";
+    return `<div class="card"><h3>💬 Passenger voices</h3><p class="muted">Reviews land after your first full day of flying — segments judge your fares, schedule, comfort, and delays.</p></div>`;
+  }
   const stars=n=>"★".repeat(n)+"☆".repeat(5-n);
   return `<div class="card"><h3>💬 Passenger voices</h3>${items.map(({r,t})=>`<div class="alert"><b>${esc(t.seg)}</b> <span class="stars">${stars(t.stars)}</span> · ${r.from}–${r.to}: ${esc(t.t)}</div>`).join("")}</div>`;
 }
@@ -222,7 +225,10 @@ function hubV(s){
   const touch={};
   s.routes.filter(r=>r.status==="ACTIVE").forEach(r=>{[r.from,r.to].forEach(a=>{(touch[a]=touch[a]||{n:0,conn:0});touch[a].n++;touch[a].conn+=(r.conn7||0)/2;});});
   const hubs=Object.entries(touch).filter(([,x])=>x.n>=2).sort((a,b)=>b[1].conn-a[1].conn).slice(0,3);
-  if(!hubs.length)return "";
+  if(!hubs.length){
+    if(!s.routes.some(r=>r.status==="ACTIVE"))return "";
+    return `<div class="card"><h3>🔗 Hubs</h3><p class="muted">No hub yet — base two routes at one airport (A→H plus H→B) to sell through-tickets and earn connecting passengers.</p></div>`;
+  }
   return `<div class="card"><h3>🔗 Hubs</h3>${hubs.map(([a,x])=>`<div>🔗 <b>${a}</b> · ${x.n} routes · ~${Math.round(x.conn)} connecting pax/day</div>`).join("")}<p class="tiny muted">Through-tickets: routes feeding your other departures from the same airport earn bonus connecting passengers.</p></div>`;
 }
 function contractsV(s){
@@ -230,12 +236,63 @@ function contractsV(s){
   const act=((s.contracts||{}).active)||[];
   const live=act.filter(c=>c.status==="ACTIVE");
   return `<div class="card"><h3>🤝 Corporate contracts</h3>
-  ${live.length?live.map(c=>`<div class="alert">🏢 <b>${esc(c.sponsor)}</b> on ${c.from}–${c.to} · ${G.fmt$(c.pay)}/wk · week ${c.paidWeeks+1}/${c.weeks} · check Day ${c.nextCheck}${c.strikes?` · <span class="loss">${c.strikes} strike${c.strikes>1?"s":""}</span>`:""}</div>`).join(""):'<p class="muted">No active contracts (max 2).</p>'}
-  ${offs.length?offs.map(o=>`<div class="row">🏢 <b>${esc(o.sponsor)}</b> wants ${o.from}–${o.to} · ${G.fmt$(o.pay)}/wk × ${o.weeks} + ${G.fmt$(o.bonus)} bonus <span class="tiny muted">(keep LF ≥70%)</span> <button data-accept="${o.id}">Sign</button></div>`).join(""):'<p class="muted">No offers — keep an active route flying to attract sponsors.</p>'}</div>`;
+  ${live.length?live.map(c=>`<div class="alert">${c.type==="cargo"?"🛄":"🏢"} <b>${esc(c.sponsor)}</b> on ${c.from}–${c.to} · ${G.fmt$(c.pay)}/wk · week ${c.paidWeeks+1}/${c.weeks} · check Day ${c.nextCheck}${c.type==="cargo"?` · ${c.tons}t/wk, keep flying`:` · LF≥70%`}${c.strikes?` · <span class="loss">${c.strikes} strike${c.strikes>1?"s":""}</span>`:""}</div>`).join(""):'<p class="muted">No active contracts (max 2).</p>'}
+  ${offs.length?offs.map(o=>`<div class="row">${o.type==="cargo"?"🛄":"🏢"} <b>${esc(o.sponsor)}</b> wants ${o.from}–${o.to} · ${G.fmt$(o.pay)}/wk × ${o.weeks} + ${G.fmt$(o.bonus)} bonus <span class="tiny muted">(${o.type==="cargo"?o.tons+"t/wk, keep flying":"keep LF ≥70%"})</span> <button data-accept="${o.id}">Sign</button></div>`).join(""):'<p class="muted">No offers — keep an active route flying to attract sponsors.</p>'}</div>`;
 }
 function fuelDesk(s){
   const l=s.fuelLock,live=l&&l.left>0;
   return `<div class="card"><h3>⛽ Fuel desk</h3><div class="row">Market <b>$${s.fuel.toFixed(2)}</b> ${live?`· Locked <b>$${l.price.toFixed(2)}</b> · ${l.left}d left · hedge P/L <b class="${(l.saved||0)>=0?'profit':'loss'}">${G.fmt$(Math.round(l.saved||0))}</b>`:`· <button id="doLock">Lock 30 days @ $${(s.fuel*1.05).toFixed(2)}</button>`}</div><p class="tiny muted">Hedge = pay a 5% premium to freeze today's price for 30 days. You win when spikes hit, lose a little when prices fall.</p></div>`;
+}
+const HQSTAGES=[{min:1,art:"🗝️",name:"Corner Desk"},{min:3,art:"🏠",name:"City Office"},{min:5,art:"🏢",name:"Regional HQ"},{min:10,art:"🏙️",name:"National Tower"},{min:18,art:"🌆",name:"International Plaza"},{min:28,art:"🗼",name:"Skyline Spire"}];
+function hqStage(lvl){let cur=HQSTAGES[0],next=null;for(const st of HQSTAGES){if(lvl>=st.min)cur=st;else{next=st;break;}}return{cur,next};}
+function hqCard(s){
+  const{cur,next}=hqStage(s.level),c1=((s.livery||{}).c1)||"#0ea5e9";
+  const styles=[["modern","🏙️ Modern"],["classic","🏛️ Classic"],["eco","🌿 Eco"]];
+  return `<div class="card" style="margin-top:12px;border-left:4px solid ${c1}"><div class="row"><span style="font-size:44px">${cur.art}</span><div><b>${esc(s.name)} HQ — ${cur.name}</b><div class="tiny muted">Level ${s.level}${next?` · next: ${next.name} at level ${next.min}`:" · maxed out!"} · purely cosmetic, zero balance effect</div><div class="row" style="margin-top:4px">${styles.map(([v,l])=>`<button data-hq="${v}"${s.hqStyle===v?' class="primary"':""} style="padding:4px 8px;font-size:12px">${l}</button>`).join("")}</div></div></div></div>`;
+}
+function liveryV(s){
+  const l=s.livery||{c1:"#0ea5e9",c2:"#f8fafc"};
+  return `<div class="card" style="margin-bottom:12px"><div class="row"><b>🎨 Livery</b>
+  <label class="tiny">Primary <input type="color" id="liv1" value="${l.c1}"></label>
+  <label class="tiny">Secondary <input type="color" id="liv2" value="${l.c2}"></label>
+  <span class="tiny muted">Flies on map planes, fleet dots & HQ trim.</span>
+  <span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${l.c1};border:2px solid ${l.c2}"></span></div></div>`;
+}
+function cfgTxt(a){const m=G.model(a.modelId);const c=(a.config||{});const y=(c.y==null&&m)?m.seats:(c.y||0),j=c.j||0;return j?`${y}Y+${j}J`:`${y}Y`;}
+function cabinPanel(s){
+  const a=s.fleet.find(x=>x.id===cabinSel);if(!a)return "";
+  const m=G.model(a.modelId);if(!m||m.cls==="Cargo")return "";
+  const maxJ=Math.floor(m.seats/2);
+  return `<div class="card"><h3>⚙ Cabins — ${m.name} (${m.seats} seats)</h3>
+  <p class="muted">Business seats displace 1.5 economy seats each and sell for 2.6× the Y fare. Current: <b>${cfgTxt(a)}</b></p>
+  <div class="row"><button data-cabpre="0">All economy</button><button data-cabpre="12">Balanced (~12% J)</button><button data-cabpre="22">Premium-heavy (~22% J)</button>
+  J seats <input id="cabJ" type="number" min="0" max="${maxJ}" value="${((a.config||{}).j)||0}" style="width:70px"> <button id="cabApply" class="primary">Apply</button>
+  <button id="cabClose">Close</button></div></div>`;
+}
+function crewPoolV(s){
+  const need=new Set(s.routes.filter(r=>r.status==="ACTIVE").map(r=>r.aircraftId)).size;
+  const c=s.crew,have=c.pilots;
+  const wageL={budget:"Budget $500/d",std:"Standard $800/d",premium:"Premium $1.2K/d"};
+  const col=c.morale>=60?"#4ade80":c.morale>=35?"#fbbf24":"#f87171";
+  const rates={budget:500,std:800,premium:1200};
+  return `<div class="card" style="margin-bottom:12px"><h3>🧑‍✈️ Flight crews — ${have}/${need} employed · morale <span style="color:${col}">${Math.round(c.morale)}</span></h3>
+  <div class="row">Wages: ${["budget","std","premium"].map(w=>`<button data-wage="${w}"${c.wage===w?' class="primary"':""} style="padding:4px 8px;font-size:12px">${wageL[w]}</button>`).join("")}
+  <button data-hire>Hire crew ($20K)</button><button data-fire>Release</button>
+  <span class="tiny muted">Payroll ${(have*(rates[c.wage]||800)/1000).toFixed(1)}K/day · short crews ground flights · low morale risks strikes</span></div></div>`;
+}
+function allianceV(s){
+  if(s.alliance){const a=s.alliance;
+    return `<div class="card"><h3>🤝 ${esc(a.name)}</h3><p class="muted">Member since day ${a.since} · +12% demand on shared routes · $50K weekly dues <button data-alleave class="danger">Leave</button></p></div>`;}
+  if(s.invite){const iv=s.invite;
+    return `<div class="card"><h3>✉️ Alliance invitation</h3><p><b>${esc(iv.name)}</b> wants you — +12% demand on shared routes for $50K/wk dues.</p><div class="row"><button data-aljoin class="primary">Join</button><button data-aldec>Decline</button></div></div>`;}
+  return `<div class="card"><h3>🤝 Alliances</h3><p class="muted">No invitation yet — reach level 5 and the big alliances will come calling. (True cross-player alliances need the future online server.)</p></div>`;
+}
+function prestigeV(s){
+  const info=G.prestigeInfo();
+  return `<div class="card"><h3>🏛️ Airline Group (Prestige ${info.n})</h3>
+  ${info.eligible?`<p>Reset to a fresh $5M startup under the same name — keep a permanent legacy:</p><div class="row">${info.perks.map(p=>`<button data-prestige="${p.k}">${p.name}<br><span class="tiny">${p.desc}</span></button>`).join("")}</div>`
+  :`<p class="muted">${info.need}. Currently level ${s.level}, ${G.fmt$(s.cash)} cash.</p>`}
+  ${info.hof.length?`<p class="tiny">Hall of fame: ${info.hof.map(h=>`P${h.n}: ${G.fmt$(h.profit)} profit, ${(h.pax/1e6).toFixed(1)}M pax`).join(" · ")}</p>`:""}</div>`;
 }
 function dash(s){
   const last=[...s.history].slice(-1)[0]||{rev:0,profit:0,pax:0};
@@ -244,32 +301,33 @@ function dash(s){
    <div class="card"><div class="muted">Cash</div><div class="kpi">${G.fmt$(s.cash)}</div><div class="muted">Today ${last.profit>=0?'<span class="profit">': '<span class="loss">'}${G.fmt$(last.profit)}</span> · ${G.fmtN(last.pax)} pax</div></div>
    <div class="card"><div class="muted">Airline</div><div class="kpi">Lvl ${s.level}</div><div class="bar"><i style="width:${Math.min(100,s.xp/(100*Math.pow(s.level,1.6))*100)}%"></i></div><div class="muted">${Math.round(s.xp)}/${Math.round(100*Math.pow(s.level,1.6))} XP · Rep ${Math.round(s.rep)} · ${s.arch}</div></div>
    <div class="card"><div class="muted">All-time</div><div class="kpi">${G.fmtN(s.stats.pax)} pax</div><div class="muted">${G.fmtN(s.stats.flights)} flights · ${G.fmt$(s.stats.profit)} profit</div></div></div>
+  ${hqCard(s)}
   <div class="grid g2" style="margin-top:12px">
    <div class="card"><h3>🧑‍✈️ Advisor (CFO/CCO)</h3>${tips.length?tips.map(t=>`<div class="alert">${esc(t)}</div>`).join(""):'<p class="muted">All good. Expand or optimize a fare.</p>'}${s.advisor.slice(0,4).map(a=>`<div class="alert">${esc(a)}</div>`).join("")}</div>
    <div class="card"><h3>Top routes</h3>${s.routes.length?s.routes.map(r=>`<div>✈️ ${r.from}–${r.to} · LF ${Math.round((r.lf7||0)*100)}% · <span class="${(r.profit7||0)>=0?'profit':'loss'}">${G.fmt$((r.profit7||0)/7)}/d</span> ${spark(r.hist,"profit")}</div>`).join(""):'<p class="muted">No routes yet — open one in Routes tab. Try DAC → DXB with an R-109.</p>'}</div></div>`;
 }
 function fleetV(s){
   const idle=s.fleet.filter(a=>!s.routes.some(r=>r.aircraftId===a.id&&r.status==="ACTIVE"));
-  return `${crewFleet(s)}<div class="card"><h3>Fleet (${s.fleet.length}) · commonality discount ${(G.commonDisc()*100).toFixed(0)}% · fuel $${s.fuel.toFixed(2)}</h3>
+  return `${crewFleet(s)}${crewPoolV(s)}${liveryV(s)}<div class="card"><h3>Fleet (${s.fleet.length}) · commonality discount ${(G.commonDisc()*100).toFixed(0)}% · fuel $${s.fuel.toFixed(2)}</h3>
   <table><tr><th>Aircraft</th><th>Base</th><th>Cond</th><th>Age</th><th>Status</th><th></th></tr>
-  ${s.fleet.map(a=>{const m=G.model(a.modelId)||{name:"Retired ("+a.modelId+")",cls:"",seats:0,cargo:0,range:"?"};const cap=m.cls==="Cargo"?m.cargo+"t cargo":m.seats+" seats";return `<tr><td><b>${m.name}</b> <span class="muted">${a.how} · ${cap} · ${m.range}km</span></td><td>${a.base}</td><td>${Math.round(a.cond)}%</td><td>${a.ageY.toFixed(1)}y</td><td>${s.routes.some(r=>r.aircraftId===a.id&&r.status==="ACTIVE")?"🟢 flying":"🟡 idle"}</td><td>${a.how==="lease"?`<button data-return="${a.id}" title="Return to lessor (no payout)">Return</button>`:`<button data-sell="${a.id}">Sell</button>`}</td></tr>`;}).join("")}</table>
-  <p class="muted">${idle.length} idle aircraft.</p></div>
+  ${s.fleet.map(a=>{const m=G.model(a.modelId)||{name:"Retired ("+a.modelId+")",cls:"",seats:0,cargo:0,range:"?"};const cap=m.cls==="Cargo"?m.cargo+"t cargo":m.seats+" seats";const pc=(((s.livery||{}).c1))||"#0ea5e9";return `<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${pc};margin-right:6px"></span><b>${m.name}</b> <span class="muted">${a.how} · ${cap} · ${m.range}km · ${cfgTxt(a)}</span></td><td>${a.base}</td><td>${Math.round(a.cond)}%</td><td>${a.ageY.toFixed(1)}y</td><td>${s.routes.some(r=>r.aircraftId===a.id&&r.status==="ACTIVE")?"🟢 flying":"🟡 idle"}</td><td>${a.how==="lease"?`<button data-return="${a.id}" title="Return to lessor (no payout)">Return</button>`:`<button data-sell="${a.id}">Sell</button>`}${m.cls!=="Cargo"?` <button data-cab="${a.id}" title="Cabin configuration">⚙</button>`:""}</td></tr>`;}).join("")}</table>
+  <p class="muted">${idle.length} idle aircraft.</p></div>${cabinPanel(s)}
   <div class="grid g2"><div class="card"><h3>Lease / Buy new (100 models)</h3><div class="row"><select id="buyModel">${["Regional","Commuter","Narrowbody","Widebody","Cargo","Business"].map(c=>`<optgroup label="${c}">${D.aircraftModels.filter(m=>m.cls===c).map(m=>`<option value="${m.id}">${m.name} — ${m.cls==="Cargo"?m.cargo+"t":m.seats+" seats"} · ${m.range}km · lease ${G.fmt$(m.lease)}/mo · buy ${G.fmt$(m.buy)}</option>`).join("")}</optgroup>`).join("")}</select><select id="buyHow"><option value="lease">Lease (deposit 1 mo)</option><option value="buy">Buy cash</option></select><button id="doBuy" class="primary">Acquire</button></div><p class="muted">Lease = cheap start, no asset. Buy = equity + resale. Same manufacturer ×6+ = maintenance discount.</p></div>
   <div class="card"><h3>Used market (refreshes)</h3>${s.usedMarket.map(u=>{const m=G.model(u.modelId);if(!m)return "";return `<div class="row">🛩 ${m.name} · ${G.fmt$(u.price)} · cond ${u.cond}% · ${u.ageY}y <button data-used="${u.key}">Buy</button></div>`;}).join("")}</div></div>`;
 }
 function routesV(s){
   const idle=s.fleet.filter(a=>!s.routes.some(r=>r.aircraftId===a.id&&r.status==="ACTIVE"));
   const apOpts=D.airports.map(a=>`<option value="${a.id}">${a.iata||a.id} ${a.city} (${a.country})</option>`).join("");
-  const pv=G.routePreview(routeDraft.from,routeDraft.to,(idle[0]&&idle[0].modelId)||"R109",routeDraft.freq,routeDraft.fareY);
+  const pv=G.routePreview(routeDraft.from,routeDraft.to,(idle[0]&&idle[0].modelId)||"R109",routeDraft.freq,routeDraft.fareY,idle[0]?idle[0].id:null);
   return `${crewRoutes(s)}<div class="card"><h3>Open route (limit ${2+s.level*2})</h3>
    <div class="row">From <select id="rFrom">${apOpts}</select> To <select id="rTo">${apOpts}</select>
    Aircraft <select id="rAc">${idle.length?idle.map(a=>`<option value="${a.id}">${(G.model(a.modelId)||{name:a.modelId}).name} @${a.base}</option>`).join(""):'<option value="">— no idle aircraft, buy one —</option>'}</select>
    Freq <select id="rFreq"><option>1</option><option>2</option><option>3</option><option>4</option></select>
    Fare Y $<input id="rFare" type="number" value="${routeDraft.fareY}" style="width:90px"></div>
    <div class="row" style="margin-top:8px"><button id="doPreview">Preview</button><button id="doOpt">✨ Optimize fare</button><button id="doOpen" class="primary">Launch route</button></div>
-   <div id="pv" style="margin-top:8px">${pv.err?`<span class="loss">${esc(pv.err)}</span>`:pv.isCargo?`Dist ${pv.dist}km · Freighter · Cargo <b>${pv.cargoT}t</b> · Profit <b class="${pv.profit>=0?'profit':'loss'}">${G.fmt$(pv.profit)}/day</b>`: `Dist ${pv.dist}km · Mkt $${pv.mFare} · Share ${Math.round(pv.myShare*100)}% vs ${pv.rivals} AI · Pax <b>${pv.pax}</b> · LF <b>${Math.round(pv.lf*100)}%</b> · Profit <b class="${pv.profit>=0?'profit':'loss'}">${G.fmt$(pv.profit)}/day</b>`}</div></div>
+   <div id="pv" style="margin-top:8px">${pv.err?`<span class="loss">${esc(pv.err)}</span>`:pv.isCargo?`Dist ${pv.dist}km · Freighter · Cargo <b>${pv.cargoT}t</b> · Profit <b class="${pv.profit>=0?'profit':'loss'}">${G.fmt$(pv.profit)}/day</b>`: `Dist ${pv.dist}km · Mkt $${pv.mFare} · Share ${Math.round(pv.myShare*100)}% vs ${pv.rivals} AI · Pax <b>${pv.pax}</b>${pv.jPax?` (${pv.yPax}Y+${pv.jPax}J @ $${pv.fareJ})`:""} · LF <b>${Math.round(pv.lf*100)}%</b> · Profit <b class="${pv.profit>=0?'profit':'loss'}">${G.fmt$(pv.profit)}/day</b>`}</div></div>
   <div class="card"><h3>Your routes</h3><table><tr><th>Route</th><th>Freq/Fare</th><th>LF 7d</th><th>Profit/d</th><th>Trend</th><th></th></tr>
-  ${s.routes.map(r=>`<tr><td><b>${r.from}–${r.to}</b> <span class="muted">${(G.model((s.fleet.find(a=>a.id===r.aircraftId)||{}).modelId)||{name:r.status==="REVIEW"?"— aircraft sold —":"?" }).name}</span></td><td>${r.freq}× · $${r.fareY}</td><td>${Math.round((r.lf7||0)*100)}%${(r.conn7||0)>0?`<div class="tiny">+${Math.round(r.conn7)} conn</div>`:""}</td><td class="${(r.profit7||0)>=0?'profit':'loss'}">${G.fmt$((r.profit7||0)/7)}</td><td>${spark(r.hist,"profit")}</td><td><button data-susp="${r.id}">${r.status==="ACTIVE"?"Suspend":"Resume"}</button> <button data-close="${r.id}" class="danger">Close</button></td></tr>`).join("")||'<tr><td colspan="6" class="muted">None yet.</td></tr>'}</table></div>`+reviewsV(s)+hubV(s)+contractsV(s);
+  ${s.routes.map(r=>`<tr><td><b>${r.from}–${r.to}</b> <span class="muted">${(G.model((s.fleet.find(a=>a.id===r.aircraftId)||{}).modelId)||{name:r.status==="REVIEW"?"— aircraft sold —":"?" }).name}</span></td><td>${r.freq}× · $${r.fareY}${(()=>{const fa=(s.fleet.find(a=>a.id===r.aircraftId)||{});const fm=G.model(fa.modelId);return fm?`<div class="tiny">🛄 ${Math.round(fm.cargo*r.freq*10)/10}t belly</div>`:"";})()}</td><td>${Math.round((r.lf7||0)*100)}%${(r.conn7||0)>0?`<div class="tiny">+${Math.round(r.conn7)} conn</div>`:""}</td><td class="${(r.profit7||0)>=0?'profit':'loss'}">${G.fmt$((r.profit7||0)/7)}</td><td>${spark(r.hist,"profit")}</td><td><button data-susp="${r.id}">${r.status==="ACTIVE"?"Suspend":"Resume"}</button> <button data-close="${r.id}" class="danger">Close</button></td></tr>`).join("")||'<tr><td colspan="6" class="muted">None yet.</td></tr>'}</table></div>`+reviewsV(s)+hubV(s)+contractsV(s);
 }
 function finV(s){
   const h=[...s.history].slice(-14).reverse();
@@ -298,11 +356,11 @@ function loansV(s){
 function misV(s){
   const story=G.story();
   return `<div class="grid g2"><div class="card"><h3>Story missions</h3>${story.map((m,i)=>`<div>${s.missionsDone["story"+i]?"✅":"⬜"} ${esc(m.t)} <span class="muted">+${G.fmt$(m.rw)}</span></div>`).join("")}</div>
-  <div class="card"><h3>Achievements</h3><div>🛫 First route: ${s.routes.length?"✅":"⬜"}</div><div>🧍 10K pax: ${s.stats.pax>=10000?"✅":"⬜"} (${G.fmtN(s.stats.pax)})</div><div>💰 $10M cash: ${s.cash>=10e6?"✅":"⬜"}</div><div>🌍 5 routes: ${s.routes.length>=5?"✅":"⬜"}</div><div>⭐ Level 5: ${s.level>=5?"✅":"⬜"}</div></div></div>`;
+  <div class="card"><h3>Achievements</h3><div>🛫 First route: ${s.routes.length?"✅":"⬜"}</div><div>🧍 10K pax: ${s.stats.pax>=10000?"✅":"⬜"} (${G.fmtN(s.stats.pax)})</div><div>💰 $10M cash: ${s.cash>=10e6?"✅":"⬜"}</div><div>🌍 5 routes: ${s.routes.length>=5?"✅":"⬜"}</div><div>⭐ Level 5: ${s.level>=5?"✅":"⬜"}</div></div></div>`+prestigeV(s);
 }
 function boardV(s){
   const rows=[{n:"⭐ "+s.name+" (YOU · "+s.home+")",p:s.stats.profit,px:s.stats.pax,c:"#0ea5e9"},...s.ai.map(a=>({n:(a.face||"🛩")+" "+a.name+" ("+(a.ceo||"CEO")+" · "+(a.base||"?")+")",p:a.profit+Math.round(Math.random()*20000)+s.day*800,px:a.pax+s.day*400,c:"#f87171"}))].sort((a,b)=>b.p-a.p);
-  return `<div class="card"><h3>Leaderboard — profit (you vs AI)</h3><table><tr><th>#</th><th>Airline</th><th>Score</th></tr>${rows.map((r,i)=>`<tr><td>${i+1}</td><td style="color:${r.c}">${esc(r.n)}</td><td>${G.fmt$(r.p)}</td></tr>`).join("")}</table><p class="muted">AI personalities: SwiftGo (LCC, SE Asia) undercuts · Royal Meridian (premium long-haul) holds high fare · Magnolia (US regional) nips thin routes · Titan (mega, Gulf) spams frequency. Enter their routes to steal share with better fare/frequency/rep.</p></div>`;
+  return `<div class="card"><h3>Leaderboard — profit (you vs AI)</h3><table><tr><th>#</th><th>Airline</th><th>Score</th></tr>${rows.map((r,i)=>`<tr><td>${i+1}</td><td style="color:${r.c}">${esc(r.n)}</td><td>${G.fmt$(r.p)}</td></tr>`).join("")}</table><p class="muted">AI personalities: SwiftGo (LCC, SE Asia) undercuts · Royal Meridian (premium long-haul) holds high fare · Magnolia (US regional) nips thin routes · Titan (mega, Gulf) spams frequency. Enter their routes to steal share with better fare/frequency/rep.</p></div>`+allianceV(s);
 }
 function drawMap(){
   // Leaflet Big-Map clone: OSM + Esri Satellite base layers (same as OurAirports oamap.js),
@@ -310,7 +368,10 @@ function drawMap(){
   const el=$("#map");if(!el)return;const s=G.S();
   if(typeof L==="undefined"){el.innerHTML='<p class="muted">Map needs internet (Leaflet CDN). Routes tab still works offline.</p>';return;}
   if(skyMap){try{skyMap.remove();}catch(e){}skyMap=null;}try{
-  const osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'Map data © <a href="https://openstreetmap.org">OpenStreetMap</a> contributors',maxZoom:18});
+  // NOTE: tile.openstreetmap.org blocks file:// / referer-less apps per its
+  // usage policy, and CARTO now demands an API key — so both base layers
+  // come from Esri (street + satellite), which serve keyless with attribution.
+  const osm=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri — Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, © OpenStreetMap contributors',maxZoom:19,id:'esri.streets'});
   const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Imagery: Esri, DigitalGlobe, GeoEye, Earthstar Geographics, CNES/Airbus DS, USDA, USGS, AeroGRID, IGN, GIS Community',maxZoom:18});
   skyMap=L.map("map",{layers:[osm],worldCopyJump:true});
   L.control.layers({"Map":osm,"Satellite":sat}).addTo(skyMap);
@@ -348,7 +409,7 @@ function startFlights(s){
   const SCALE=12, planes=[], SIM=window.SKY_SIM;
   const addPlane=(A,B,popup,dist,speed)=>{
     if(!A||!B)return;
-    const mk=L.marker([A.lat,A.lon],{icon:L.divIcon({className:"plane",html:"✈️",iconSize:[18,18],iconAnchor:[9,9]}),keyboard:false});
+    const mk=L.marker([A.lat,A.lon],{icon:L.divIcon({className:"plane",html:`<span style="color:${((s.livery||{}).c1)||"#0ea5e9"};font-size:19px;line-height:1">✈</span>`,iconSize:[20,20],iconAnchor:[10,10]}),keyboard:false});
     mk.bindPopup(popup);mk.addTo(skyMap);
     const D=Math.max(5,(dist/Math.max(300,speed||800))*SCALE); // seconds, one-way
     planes.push({mk,A,B,t:Math.random(),v:0.24/D*(Math.random()<0.5?-1:1)});
@@ -400,12 +461,25 @@ function bind(v){
   v.querySelectorAll("[data-payoff]").forEach(b=>b.onclick=()=>{const r=G.payoffLoan(b.dataset.payoff);if(r.err)alert(r.err);else render();});
   v.querySelectorAll("[data-accept]").forEach(b=>b.onclick=()=>{const r=G.acceptContract(b.dataset.accept);if(r.err)alert(r.err);else render();});
   const doLock=v.querySelector("#doLock");if(doLock)doLock.onclick=()=>{const r=G.lockFuel();if(r.err)alert(r.err);else render();};
+  v.querySelectorAll("[data-cab]").forEach(b=>b.onclick=()=>{cabinSel=(cabinSel===b.dataset.cab?null:b.dataset.cab);render();});
+  v.querySelectorAll("[data-cabpre]").forEach(b=>b.onclick=()=>{const ac=G.S().fleet.find(x=>x.id===cabinSel);if(!ac)return;const m=G.model(ac.modelId);const r=G.setCabins(cabinSel,Math.round(m.seats*(+b.dataset.cabpre)/100));if(r.err)alert(r.err);else render();});
+  const cabAp=v.querySelector("#cabApply");if(cabAp)cabAp.onclick=()=>{const r=G.setCabins(cabinSel,+v.querySelector("#cabJ").value);if(r.err)alert(r.err);else render();};
+  const cabCl=v.querySelector("#cabClose");if(cabCl)cabCl.onclick=()=>{cabinSel=null;render();};
+  const liv=v.querySelector("#liv1");if(liv){const apply=()=>{const st=G.S();st.livery={c1:v.querySelector("#liv1").value,c2:v.querySelector("#liv2").value};G.save();render();};liv.onchange=apply;v.querySelector("#liv2").onchange=apply;}
+  v.querySelectorAll("[data-wage]").forEach(b=>b.onclick=()=>{const r=G.setWage(b.dataset.wage);if(r.err)alert(r.err);else render();});
+  v.querySelectorAll("[data-hire]").forEach(b=>b.onclick=()=>{const r=G.hireCrew();if(r.err)alert(r.err);else render();});
+  v.querySelectorAll("[data-fire]").forEach(b=>b.onclick=()=>{const r=G.fireCrew();if(r.err)alert(r.err);else render();});
+  v.querySelectorAll("[data-hq]").forEach(b=>b.onclick=()=>{G.S().hqStyle=b.dataset.hq;G.save();render();});
+  v.querySelectorAll("[data-aljoin]").forEach(b=>b.onclick=()=>{const r=G.joinAlliance();if(r.err)alert(r.err);else render();});
+  v.querySelectorAll("[data-aldec]").forEach(b=>b.onclick=()=>{G.declineInvite();render();});
+  v.querySelectorAll("[data-alleave]").forEach(b=>b.onclick=()=>{G.leaveAlliance();render();});
+  v.querySelectorAll("[data-prestige]").forEach(b=>b.onclick=()=>{if(confirm("Found the Airline Group? Fleet, routes and cash reset — name, livery and a permanent legacy remain.")){const r=G.doPrestige(b.dataset.prestige);if(r.err)alert(r.err);else{tab="dash";document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on",x.dataset.t==="dash"));render();}}});
   const rf=v.querySelector("#rFrom");if(rf){rf.value=routeDraft.from;v.querySelector("#rTo").value=routeDraft.to;v.querySelector("#rFreq").value=String(routeDraft.freq);
     rf.onchange=()=>routeDraft.from=rf.value;v.querySelector("#rTo").onchange=e=>routeDraft.to=e.target.value;
     v.querySelector("#rFreq").onchange=e=>routeDraft.freq=+e.target.value;v.querySelector("#rFare").oninput=e=>routeDraft.fareY=+e.target.value||200;
     v.querySelector("#doPreview").onclick=()=>render();
     v.querySelector("#doOpt").onclick=()=>{const acId=v.querySelector("#rAc").value;const ac=s.fleet.find(a=>a.id===acId);if(!ac){alert("No idle aircraft");return;}
-      const b=G.optimizeFare(routeDraft.from,routeDraft.to,ac.modelId,routeDraft.freq);routeDraft.fareY=b.fare;render();flash("Optimal fare $"+b.fare+" → "+G.fmt$(b.profit)+"/day");};
+      const b=G.optimizeFare(routeDraft.from,routeDraft.to,ac.modelId,routeDraft.freq,ac.id);routeDraft.fareY=b.fare;render();flash("Optimal fare $"+b.fare+" → "+G.fmt$(b.profit)+"/day");};
     v.querySelector("#doOpen").onclick=()=>{const acId=v.querySelector("#rAc").value;if(!acId){alert("Buy/lease an aircraft first (Fleet tab).");return;}
       const r=G.openRoute(routeDraft.from,routeDraft.to,acId,routeDraft.freq,routeDraft.fareY);if(r.err)alert(r.err);else{flash("Route launched! +1 Day to fly it.");tab="dash";document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("on",x.dataset.t==="dash"));render();}};}
   v.querySelectorAll("[data-susp]").forEach(b=>b.onclick=()=>{const r=s.routes.find(x=>x.id===b.dataset.susp);r.status=r.status==="ACTIVE"?"SUSPENDED":"ACTIVE";G.save();render();});

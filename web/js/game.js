@@ -17,7 +17,9 @@ window.SKY_GAME = (() => {
       fleet:[],routes:[],ai:[],history:[],missionsDone:{},daily:{day:0,flights:0,profit:0},
       stats:{pax:0,flights:0,revenue:0,profit:0},lastSeen:Date.now(),awayReport:null,
       advisor:[],story:0,ach:{},usedMarket:genUsed(),fuelLocks:0,loans:[],loanBlacklistUntil:0,gazetteClosed:false,
-      pendingEvent:null,disruption:{days:0,ap:null},promoDays:0,fuelLock:null,contracts:{offers:[],active:[]},created:Date.now()};
+      pendingEvent:null,disruption:{days:0,ap:null},promoDays:0,fuelLock:null,contracts:{offers:[],active:[]},eventSeen:false,
+      prestige:{n:0,perks:{rev:0,dem:0,mnt:0}},hof:[],livery:{c1:"#0ea5e9",c2:"#f8fafc"},hqStyle:"modern",
+      alliance:null,invite:null,crew:{pilots:2,wage:"std",morale:70},created:Date.now()};
     // starter fleet: 2 leased CloudWorks R-109 (100-seat regional jet, DAC-Gulf capable)
     addAircraft("R109","lease",home);addAircraft("R109","lease",home);
     S.ai=genAI();
@@ -72,10 +74,11 @@ window.SKY_GAME = (() => {
     const fam={};S.fleet.forEach(a=>{const m=model(a.modelId);if(!m)return;fam[m.mfr]=(fam[m.mfr]||0)+1;});
     let d=0;Object.values(fam).forEach(c=>{if(c>5)d+=0.08;});return Math.min(0.25,d);
   }
-  function routePreview(fromId,toId,modelId,freq,fareY){
+  function routePreview(fromId,toId,modelId,freq,fareY,aircraftId){
     const A=ap(fromId),B=ap(toId),M=model(modelId);
     if(!A||!B)return{err:"Unknown airport."};
     if(!M)return{err:"Unknown aircraft model."};
+    const AC=aircraftId?((S.fleet||[]).find(a=>a.id===aircraftId)||null):null;
     const SIM=window.SKY_SIM;
     const dist=SIM.havKm(A,B);
     if(dist>M.range)return{err:M.name+" range "+M.range+"km < "+Math.round(dist)+"km."};
@@ -89,24 +92,25 @@ window.SKY_GAME = (() => {
     if(M.cls==="Cargo"){
       const tons=Math.round(M.cargo*freq*0.7*10)/10;
       const c=SIM.flightCost({model:M,dist,apA:A,apB:B,fuelPrice:effFuel(),ageY:1,commonDisc:commonDisc(),pax:0,freq,cabinJ:false});
-      const rev=Math.round(tons*dist*0.3);
-      const cost=Math.round(c.total*freq);
+      const rev=Math.round(tons*dist*0.3*prestigeRev());
+      const cost=Math.round((c.total-c.maint)*freq + c.maint*freq*prestigeMntF());
       return{dist:Math.round(dist),baseD:Math.round(baseD),mFare,pax:0,cargoT:tons,lf:0.7,rev,cost,profit:rev-cost,myShare:1,rivals:rivals.length,isCargo:true,
         perFlight:{rev:Math.round(rev/Math.max(1,freq)),cost:Math.round(cost/Math.max(1,freq))}};
     }
     const uP=SIM.util(fareY,freq,S.rep,0.3,0.8,1.2);
     const uR=rivals.map(ai=>SIM.util(mFare*ai.fareMul,2,ai.rep,0.3,0.8,1.2));
     const sh=SIM.share([uP,...uR]);const myShare=sh[0];
-    const dem=SIM.demandAtPrice(baseD,fareY,mFare,e,S.rep,freq,season,event,S.econ,myShare)*(S.promoDays>0?1.15:1);
-    const seats=M.seats*freq;
-    const pax=Math.min(seats,Math.round(dem));
-    const lf=pax/seats;
-    const paxSplit={Y:pax};
+    const allyF=(S.alliance&&S.alliance.members&&rivals.some(ai=>S.alliance.members.includes(ai.id)))?1.12:1;
+    const dem=SIM.demandAtPrice(baseD,fareY,mFare,e,S.rep,freq,season,event,S.econ,myShare)*(S.promoDays>0?1.15:1)*prestigeDem()*allyF;
+    const cfg=cfgOf(AC,M),cap=(cfg.y+cfg.j)*freq;
+    const tot=Math.min(cap,Math.round(dem));
+    const cr=cabinRev(AC,M,tot,fareY);
+    const pax=cr.yPax+cr.jPax,lf=cap?pax/cap:0;
     const c=SIM.flightCost({model:M,dist,apA:A,apB:B,fuelPrice:effFuel(),ageY:1,commonDisc:commonDisc(),pax,freq,cabinJ:false});
-    // daily totals = per-flight * freq
-    const rev=pax*fareY + M.cargo*120*freq*0.5;
-    const cost=c.total*freq;
-    return{dist:Math.round(dist),baseD:Math.round(baseD),mFare,pax,lf,rev:Math.round(rev),cost:Math.round(cost),profit:Math.round(rev-cost),myShare,rivals:rivals.length,
+    // daily totals = per-flight * freq (J pax pay 2.6x, cost extra catering)
+    const rev=Math.round((cr.rev + M.cargo*120*freq*0.5)*prestigeRev());
+    const cost=Math.round((c.total-c.maint)*freq + c.maint*freq*prestigeMntF() + cr.jPax*17*freq);
+    return{dist:Math.round(dist),baseD:Math.round(baseD),mFare,pax,lf,yPax:cr.yPax,jPax:cr.jPax,fareJ:cr.fareJ,rev,cost,profit:rev-cost,myShare,rivals:rivals.length,
       perFlight:{rev:Math.round(rev/Math.max(1,freq)),cost:Math.round(cost/Math.max(1,freq))}};
   }
   function openRoute(fromId,toId,aircraftId,freq,fareY){
@@ -114,26 +118,28 @@ window.SKY_GAME = (() => {
     const ac=S.fleet.find(a=>a.id===aircraftId);
     if(!ac)return{err:"Aircraft not found."};
     if(S.routes.some(r=>r.aircraftId===aircraftId&&r.status==="ACTIVE"))return{err:"Aircraft already assigned. Buy/lease another."};
-    const pv=routePreview(fromId,toId,ac.modelId,freq,fareY);
+    const pv=routePreview(fromId,toId,ac.modelId,freq,fareY,aircraftId);
     if(pv.err)return pv;
     S.routes.push({id:"R"+Date.now()+"_"+Math.floor(Math.random()*1e6),from:fromId,to:toId,aircraftId,freq,fareY,status:"ACTIVE",lf7:pv.lf,profit7:pv.profit*7,conn7:0,hist:[],reviews:[]});
     const inc=S.ai.filter(ai=>ai.routes.some(x=>(x.from===fromId&&x.to===toId)||(x.from===toId&&x.to===fromId)));
     if(inc.length){const ai=inc[0],line=ceoLine(ai,"taunts");pushAdvisor("💬 "+(ai.ceo||"Rival CEO")+" ("+ai.name+"): \""+line+"\"");}
     save();return{ok:true,pv};
   }
-  function optimizeFare(fromId,toId,modelId,freq){
+  function optimizeFare(fromId,toId,modelId,freq,aircraftId){
     const M=model(modelId);
     if(M&&M.cls==="Cargo"){const pv=routePreview(fromId,toId,modelId,freq,0);return{fare:0,profit:pv.profit||-1e18,pv};}
     const A=ap(fromId),B=ap(toId);const SIM=window.SKY_SIM;
     const dist=SIM.havKm(A,B);const mFare=SIM.marketFare(dist,A,B);
     let best={fare:mFare,profit:-1e18,pv:null};
     for(let f=Math.round(mFare*0.6);f<=mFare*1.6;f+=Math.max(2,Math.round(mFare*0.03))){
-      const pv=routePreview(fromId,toId,modelId,freq,f);
+      const pv=routePreview(fromId,toId,modelId,freq,f,aircraftId);
       if(pv.err)continue;
       if(pv.profit>best.profit)best={fare:f,profit:pv.profit,pv};
     }
     return best;
   }
+  function mkStrikeEv(){return{id:"strike",title:"Strike vote at "+S.home,desc:"Ground crews demand a bonus before the holiday rush.",
+    opts:[{label:"Pay $50K bonus",sub:"+2 reputation"},{label:"Refuse",sub:"2-day walkout, rep -2"}]};}
   function simulateDay(){
     const SIM=window.SKY_SIM;
     S.day++;S.daily={day:S.day,flights:0,profit:0};
@@ -144,7 +150,7 @@ window.SKY_GAME = (() => {
     if(S.promoDays>0)S.promoDays--;
     if(S.disruption&&S.disruption.days>0){S.disruption.days--;if(S.disruption.days===0){S.disruption.ap=null;pushAdvisor("Operations back to normal after the disruption.");}}
     if(S.fuelLock&&S.fuelLock.left>0)S.fuelLock.left--;
-    else if(rnd>0.90&&!S.pendingEvent){
+    else if(!S.pendingEvent&&(rnd>0.90||(S.day>=3&&!S.eventSeen&&S.routes.some(r=>r.status==="ACTIVE")))){
       // choice events: the player decides, the world reacts
       const served=[...new Set(S.routes.filter(r=>r.status==="ACTIVE").flatMap(r=>[r.from,r.to]))];
       const ap=served.length?served[Math.floor(SIM.mulberry(S.day*77+3)()*served.length)]:null;
@@ -153,8 +159,7 @@ window.SKY_GAME = (() => {
         pool.push({id:"ash",ap,n:nAff,title:"Volcanic ash closes "+ap,
           desc:`Eruption grounds traffic at ${ap}. ${nAff} of your routes touch it — ash lasts 2 days.`,
           opts:[{label:`Reroute everything ($${fmtN(nAff*15000)})`,sub:"No disruption"},{label:"Cancel flights",sub:"Rep -3, 2-day disruption"}]});
-        pool.push({id:"strike",title:"Strike vote at "+S.home,desc:"Ground crews demand a bonus before the holiday rush.",
-          opts:[{label:"Pay $50K bonus",sub:"+2 reputation"},{label:"Refuse",sub:"2-day walkout, rep -2"}]});}
+        pool.push(mkStrikeEv());}
       pool.push({id:"promo",title:"Tourism board proposal",desc:"A tourism board offers a joint campaign: +15% demand for 5 days.",
         opts:[{label:"Fund it ($30K)",sub:"+15% demand, 5 days"},{label:"Decline",sub:"Nothing happens"}]});
       pool.push({id:"fuel",title:"Refinery outage",desc:"A refinery fire will push fuel +$0.50/gal unless you stock reserves.",
@@ -162,16 +167,19 @@ window.SKY_GAME = (() => {
       pool.push({id:"viral",title:"Crew video goes viral",desc:"A heartwarming video of your crew hit 10M views overnight.",
         opts:[{label:"Promote it ($20K)",sub:"+3 reputation"},{label:"Let it ride",sub:"+1 reputation"}]});
       S.pendingEvent=pool[Math.floor(SIM.mulberry(S.day*55+7)()*pool.length)];
+      S.eventSeen=true;
       pushAdvisor("📰 Decision needed: "+S.pendingEvent.title+" — check the alert!");
     }
     let dayRev=0,dayCost=0,dayPax=0,dayFlights=0;
     const disc=commonDisc();
+    const needCrew0=new Set(S.routes.filter(r=>r.status==="ACTIVE").map(r=>r.aircraftId)).size;
+    const shortCrew=S.crew.pilots<needCrew0;
     for(const r of S.routes){
       if(r.status!=="ACTIVE")continue;
       const ac=S.fleet.find(a=>a.id===r.aircraftId);
       if(!ac||ac.status!=="ACTIVE")continue;
       const A=ap(r.from),B=ap(r.to),M=model(ac.modelId);
-      const pv=routePreview(r.from,r.to,ac.modelId,r.freq,r.fareY);
+      const pv=routePreview(r.from,r.to,ac.modelId,r.freq,r.fareY,ac.id);
       if(pv.err){r.status="REVIEW";continue;}
       // ops randomness: delays/cancels from condition
       const rr=SIM.mulberry(S.day*31+r.id.length*77)();
@@ -180,10 +188,15 @@ window.SKY_GAME = (() => {
       if(rr<Math.max(0,(60-ac.cond))/500){flown=Math.max(0,r.freq-1);pax=Math.round(pax*(flown/Math.max(1,r.freq)));tons=Math.round(tons*(flown/Math.max(1,r.freq))*10)/10;pushAdvisor("Cancellation on "+r.from+"–"+r.to+" (condition "+Math.round(ac.cond)+"%). Maintain!");}
       // strike/ash disruption grounds extra flights touching the affected airport
       if(S.disruption&&S.disruption.days>0&&(!S.disruption.ap||r.from===S.disruption.ap||r.to===S.disruption.ap)&&flown>0){flown--;pax=Math.round(pax*(flown/Math.max(1,r.freq)));tons=Math.round(tons*(flown/Math.max(1,r.freq))*10)/10;}
+      // crew shortage grounds flights too
+      if(shortCrew&&rr<0.35&&flown>0){flown--;pax=Math.round(pax*(flown/Math.max(1,r.freq)));tons=Math.round(tons*(flown/Math.max(1,r.freq))*10)/10;}
       const isCargo=M.cls==="Cargo";
-      let rev=isCargo?Math.round(tons*pv.dist*0.3):pax*r.fareY+M.cargo*120*r.freq*0.5;
+      const cr=isCargo?null:cabinRev(ac,M,pax,r.fareY);
+      if(cr)pax=cr.yPax+cr.jPax;
+      let rev=isCargo?Math.round(tons*pv.dist*0.3):(cr.rev + M.cargo*120*r.freq*0.5);
+      rev=Math.round(rev*prestigeRev());
       const c=SIM.flightCost({model:M,dist:pv.dist,apA:A,apB:B,fuelPrice:effFuel(),ageY:ac.ageY,commonDisc:disc,pax,freq:r.freq,cabinJ:false});
-      const cost=c.total*r.freq;
+      const cost=(c.total-c.maint)*r.freq + c.maint*r.freq*prestigeMntF() + (cr?cr.jPax*17*r.freq:0);
       // hub through-tickets: pax connect onto your other departures from r.to
       let conn=0;
       if(!isCargo){
@@ -237,6 +250,20 @@ window.SKY_GAME = (() => {
     dayCost+=fixed;
     dayCost+=processLoans(); // loan installments debit after revenue lands
     refreshOffers();processContracts(); // sponsors top up offers, weekly checks run
+    // alliance dues + invitations
+    if(S.alliance&&S.day>S.alliance.since&&(S.day-S.alliance.since)%7===0&&S.cash>0){const dues=Math.min(50000,S.cash);S.cash-=dues;dayCost+=dues;}
+    if(S.level>=5&&!S.alliance&&!S.invite){
+      const ir=SIM.mulberry(S.day*91+5)();
+      if(ir<0.12){const al=ALLIANCES[Math.floor(ir*100)%ALLIANCES.length];S.invite={...al,dues:50000};pushAdvisor("✉️ Invitation: join the "+al.name+"? See Ranks.");}
+    }
+    // crew payroll + morale + shortage
+    const needCrew=new Set(S.routes.filter(r=>r.status==="ACTIVE").map(r=>r.aircraftId)).size;
+    const wageP={budget:500,std:800,premium:1200}[S.crew.wage]||800;
+    dayCost+=S.crew.pilots*wageP;
+    const mTgt=S.crew.wage==="premium"?90:S.crew.wage==="budget"?30:65;
+    S.crew.morale=Math.max(5,Math.min(99,S.crew.morale+Math.max(-4,Math.min(4,(mTgt-S.crew.morale)*0.2))));
+    if(S.crew.pilots<needCrew&&S.crewWarn!==S.day){S.crewWarn=S.day;pushAdvisor(`Crew shortage! ${S.crew.pilots}/${needCrew} crews employed — hire or face delays.`);}
+    if(S.crew.morale<25&&!S.pendingEvent){S.pendingEvent=mkStrikeEv();pushAdvisor("📰 Decision needed: Strike vote at "+S.home+" — check the alert!");}
     const profit=dayRev-dayCost;
     S.cash+=profit;
     S.stats={pax:S.stats.pax+dayPax,flights:S.stats.flights+dayFlights,revenue:S.stats.revenue+dayRev,profit:S.stats.profit+profit};
@@ -359,6 +386,54 @@ window.SKY_GAME = (() => {
       headline("🚨 "+S.name+" defaults with no assets to seize — blacklisted by lenders for 30 days.");
     }
   }
+  // ---------- PRESTIGE / CABINS / CREW / ALLIANCE helpers ----------
+  function prestigeRev(){return 1+0.08*(((S.prestige||{}).perks||{}).rev||0);}
+  function prestigeDem(){return 1+0.08*(((S.prestige||{}).perks||{}).dem||0);}
+  function prestigeMntF(){return Math.max(0.6,1-0.12*(((S.prestige||{}).perks||{}).mnt||0));}
+  function prestigeInfo(){
+    return{eligible:S.level>=10&&S.cash>=10e6,need:"Reach level 10 holding $10M cash",
+      n:(S.prestige&&S.prestige.n)||0,
+      perks:[{k:"rev",name:"Fleet Legacy",desc:"+8% all revenue per prestige"},{k:"dem",name:"Brand Power",desc:"+8% demand per prestige"},{k:"mnt",name:"Maintenance Culture",desc:"-12% maintenance cost per prestige"}],
+      hof:S.hof||[]};
+  }
+  function doPrestige(perk){
+    const info=prestigeInfo();if(!info.eligible)return{err:"Not eligible yet ("+info.need+")."};
+    if(!{rev:1,dem:1,mnt:1}[perk])return{err:"Pick a legacy."};
+    const prev={n:((S.prestige||{}).n||0)+1,days:S.day,profit:Math.round(S.stats.profit),pax:S.stats.pax,level:S.level};
+    const keep={name:S.name,code:S.code,home:S.home,arch:S.arch,livery:S.livery,hqStyle:S.hqStyle};
+    const hof=[...(S.hof||[]),prev].slice(-5);
+    const P={n:prev.n,perks:{rev:0,dem:0,mnt:0,...((S.prestige||{}).perks||{})}};P.perks[perk]=(P.perks[perk]||0)+1;
+    newAirline(keep.name,keep.code,keep.home,keep.arch);
+    S.prestige=P;S.hof=hof;S.livery=keep.livery||{c1:"#0ea5e9",c2:"#f8fafc"};S.hqStyle=keep.hqStyle||"modern";
+    pushAdvisor("🏛️ "+keep.name+" Group founded (Prestige "+P.n+", legacy: "+perk+"). A new fleet, the same name.");
+    headline("🏛️ "+keep.name+" becomes an aviation group (Prestige "+P.n+")!");
+    save();return{ok:true};
+  }
+  // cabin config: J seats each displace 1.5 Y seats; J fare = 2.6x Y
+  function cfgOf(ac,M){const c=(ac&&ac.config)||{};return{y:(c.y==null?M.seats:c.y),j:c.j||0};}
+  function cabinRev(ac,M,total,fareY){
+    const cfg=cfgOf(ac,M),fareJ=Math.round(fareY*2.6);
+    const js=Math.min(0.4,Math.max(0.05,0.05+S.rep*0.002+(M.comfort-5)*0.02));
+    const jPax=Math.min(cfg.j,Math.round(total*js));
+    const yPax=Math.min(cfg.y,total-jPax);
+    return{yPax,jPax,fareJ,rev:yPax*fareY+jPax*fareJ};
+  }
+  function setCabins(acId,j){
+    const a=S.fleet.find(x=>x.id===acId);if(!a)return{err:"Aircraft not found."};
+    const m=model(a.modelId);if(!m||m.cls==="Cargo")return{err:"Freighters have no cabins."};
+    j=Math.max(0,Math.min(Math.floor(m.seats/2),Math.round(Number(j)||0)));
+    const y=m.seats-Math.ceil(j*1.5);
+    if(y<10)return{err:"Too many business seats (min 10 economy)."};
+    a.config={y,j};save();return{ok:true,y,j};
+  }
+  function hireCrew(){if(S.cash<20000)return{err:"Signing bonus is $20K per crew."};S.cash-=20000;S.crew.pilots++;pushAdvisor("Hired a flight crew ($20K signing).");save();return{ok:true};}
+  function fireCrew(){if(S.crew.pilots<=0)return{err:"Nobody left to fire."};S.crew.pilots--;save();return{ok:true};}
+  function setWage(w){if(!{budget:1,std:1,premium:1}[w])return{err:"Bad tier."};S.crew.wage=w;save();return{ok:true};}
+  const ALLIANCES=[{id:"star",name:"Starlight Alliance",led:"AI0",other:"AI2"},{id:"meridian",name:"Meridian Circle",led:"AI1",other:"AI3"},{id:"gulf",name:"Gulf Pact",led:"AI3",other:"AI0"}];
+  function joinAlliance(){if(!S.invite)return{err:"No invitation."};if(S.alliance)return{err:"Already allied."};
+    S.alliance={...S.invite,since:S.day,members:[S.invite.led,S.invite.other]};S.invite=null;pushAdvisor("Joined the "+S.alliance.name+"! +12% demand vs member routes, $50K/wk dues.");save();return{ok:true};}
+  function leaveAlliance(){if(!S.alliance)return{err:"Not allied."};pushAdvisor("Left the "+S.alliance.name+".");S.alliance=null;save();return{ok:true};}
+  function declineInvite(){S.invite=null;save();return{ok:true};}
   // ---------- CHOICE EVENTS ----------
   function resolveEvent(idx){
     const ev=S.pendingEvent;if(!ev)return{err:"No pending decision."};
@@ -396,18 +471,31 @@ window.SKY_GAME = (() => {
   }
   // ---------- CONTRACTS ----------
   const SPONSORS=["GulfTech Industries","Meridian Bank","World Athletics Council","SunFest Tourism Board","Pacific Freight Forwarders","Global MedEvac Alliance","EuroCup Committee","Hajj Travel Services"];
+  const CARGOSPONSORS=["Pacific Freight Forwarders","Global MedEvac Alliance","TransContinental Post","FreshChain Logistics"];
   function refreshOffers(){
     const act=S.routes.filter(r=>r.status==="ACTIVE");
     if(!act.length)return;
     let guard=0;
     while(S.contracts.offers.length<3&&guard++<20){
+      const wantCargo=!S.contracts.offers.some(o=>o.type==="cargo");
       const r=act[Math.floor(Math.random()*act.length)];
-      const m=model(((S.fleet.find(a=>a.id===r.aircraftId)||{}).modelId));
-      const seats=(m?m.seats:100)*r.freq;
-      S.contracts.offers.push({id:"C"+Date.now()+Math.floor(Math.random()*9999),
-        sponsor:SPONSORS[Math.floor(Math.random()*SPONSORS.length)],
-        from:r.from,to:r.to,need:0.7,weeks:3,
-        pay:Math.max(5000,Math.round(seats*15)),bonus:Math.max(8000,Math.round(seats*20))});
+      const ac=S.fleet.find(a=>a.id===r.aircraftId);
+      const m=model(((ac||{}).modelId));
+      const isF=m&&m.cls==="Cargo";
+      if(isF||wantCargo||Math.random()<0.35){
+        // cargo offer on belly capacity
+        const tons=Math.max(1,Math.round((m?m.cargo:2)*r.freq));
+        S.contracts.offers.push({id:"C"+Date.now()+Math.floor(Math.random()*9999),type:"cargo",
+          sponsor:CARGOSPONSORS[Math.floor(Math.random()*CARGOSPONSORS.length)],
+          from:r.from,to:r.to,weeks:3,tons,
+          pay:Math.max(4000,tons*300),bonus:Math.max(6000,tons*350)});
+      }else{
+        const seats=(m?m.seats:100)*r.freq;
+        S.contracts.offers.push({id:"C"+Date.now()+Math.floor(Math.random()*9999),type:"pax",
+          sponsor:SPONSORS[Math.floor(Math.random()*SPONSORS.length)],
+          from:r.from,to:r.to,need:0.7,weeks:3,
+          pay:Math.max(5000,Math.round(seats*15)),bonus:Math.max(8000,Math.round(seats*20))});
+      }
     }
   }
   function acceptContract(id){
@@ -425,14 +513,17 @@ window.SKY_GAME = (() => {
     for(const c of S.contracts.active){
       if(c.status!=="ACTIVE"||S.day<c.nextCheck)continue;
       const r=S.routes.find(x=>x.id===c.routeId);
-      if(r&&r.status==="ACTIVE"&&(r.lf7||0)>=c.need){
+      const ok=c.type==="cargo"
+        ?(r&&r.status==="ACTIVE")
+        :(r&&r.status==="ACTIVE"&&(r.lf7||0)>=(c.need||0.7));
+      if(ok){
         S.cash+=c.pay;c.paidWeeks++;c.nextCheck=S.day+7;
         pushAdvisor("Contract payout: "+c.sponsor+" paid "+fmt$(c.pay)+".");
         if(c.paidWeeks>=c.weeks){c.status="DONE";S.cash+=c.bonus;S.rep=Math.min(99,S.rep+2);
           pushAdvisor("Contract complete: bonus "+fmt$(c.bonus)+", +2 rep.");headline("🤝 "+c.sponsor+" completes its contract with "+S.name+".");}
       }else{
         c.strikes++;c.nextCheck=S.day+7;
-        pushAdvisor("Contract warning: "+c.sponsor+" ("+c.strikes+" strike"+(c.strikes>1?"s":"")+") — keep LF above 70%.");
+        pushAdvisor("Contract warning: "+c.sponsor+" ("+c.strikes+" strike"+(c.strikes>1?"s":"")+") — "+(c.type==="cargo"?"keep flying that route.":"keep LF above 70%."));
         if(c.strikes>=2){c.status="LOST";S.rep=Math.max(5,S.rep-3);
           pushAdvisor("Contract LOST: "+c.sponsor+" walked away. Rep -3.");headline("📉 "+c.sponsor+" dumps "+S.name+" over empty seats.");}
       }
@@ -474,6 +565,15 @@ window.SKY_GAME = (() => {
     if(!S.loanBlacklistUntil)S.loanBlacklistUntil=0;
     if(S.gazetteClosed===undefined)S.gazetteClosed=false;
     if(!S.pendingEvent)S.pendingEvent=null;
+    if(S.eventSeen===undefined)S.eventSeen=false;
+    if(!S.prestige)S.prestige={n:0,perks:{rev:0,dem:0,mnt:0}};
+    if(!Array.isArray(S.hof))S.hof=[];
+    if(!S.livery)S.livery={c1:"#0ea5e9",c2:"#f8fafc"};
+    if(!S.hqStyle)S.hqStyle="modern";
+    if(!("alliance"in S))S.alliance=null;
+    if(!("invite" in S))S.invite=null;
+    if(!S.crew)S.crew={pilots:2,wage:"std",morale:70};
+    (S.fleet||[]).forEach(a=>{if(a.config&&a.config.Y!=null&&a.config.y==null)a.config={y:a.config.Y,j:0};});
     if(!S.disruption)S.disruption={days:0,ap:null};
     if(!S.promoDays)S.promoDays=0;
     if(!S.fuelLock)S.fuelLock=null;
@@ -508,6 +608,6 @@ window.SKY_GAME = (() => {
     tot.fuel0=fuel0;tot.fuel1=S.fuel;tot.rep0=rep0;tot.rep1=S.rep;tot.best=best;tot.worst=worst;
     S.awayReport=tot;S.lastSeen=Date.now();save();return tot;
   }
-  return{S:()=>S,newAirline,load,reset,save,addAircraft,openRoute,routePreview,optimizeFare,simulateDay,maintain,loanPlans,loanQuote,takeLoan,payoffLoan,loanSchedule,creditLimit,outstandingDebt,effFuel,lockFuel,resolveEvent,acceptContract,checkMissions,pushAdvisor,advisorTips,catchUp,commonDisc,ap,model,fmt$,fmtN,DAY_MS,
+  return{S:()=>S,newAirline,load,reset,save,addAircraft,openRoute,routePreview,optimizeFare,simulateDay,maintain,loanPlans,loanQuote,takeLoan,payoffLoan,loanSchedule,creditLimit,outstandingDebt,effFuel,lockFuel,resolveEvent,acceptContract,setCabins,hireCrew,fireCrew,setWage,joinAlliance,leaveAlliance,declineInvite,doPrestige,prestigeInfo,checkMissions,pushAdvisor,advisorTips,catchUp,commonDisc,ap,model,fmt$,fmtN,DAY_MS,
     story:()=>STORY};
 })();

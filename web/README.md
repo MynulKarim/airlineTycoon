@@ -33,7 +33,7 @@ Base demand, elasticity, logit market share vs 4 AI personalities, fare/freq/rep
 
 ## Map + airports (OurAirports)
 - Positions/names/codes/elevations: [OurAirports](https://ourairports.com/data/) public-domain data (`airports.csv` via https://davidmegginson.github.io/ourairports-data/airports.csv). Each airport stores its OurAirports `ident` and links to its page (`ourairports.com/airports/{ident}/`).
-- Map: [Leaflet](https://leafletjs.com) with OpenStreetMap + Esri World Imagery base layers and layer/scale controls — the same stack as [The Big Map](https://ourairports.com/big-map.html) (`oamap.js`: `L.tileLayer` OSM/Esri, airport marker layers, popups). Markers sized by tier; popups show ICAO/IATA, elev, tier + Set-From/Set-To planning.
+- Map: [Leaflet](https://leafletjs.com) with Esri street + Esri World Imagery (both keyless with attribution; OSM's own tiles block local files and CARTO now needs a key). Markers sized by tier; popups show ICAO/IATA, elev, tier + Set-From/Set-To planning.
 - Refresh data: download `airports.csv`, filter `type=large_airport` (+ a few medium), keep `ident/icao/iata/name/municipality/iso_country/latitude_deg/longitude_deg/elevation_ft`, paste into `web/js/data.js`.
 - Needs internet for Leaflet CDN + tiles; all sim still runs offline (map tab shows fallback note).
 
